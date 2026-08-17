@@ -86,7 +86,7 @@ services:
       # consent URL this app generates (see googleOAuthTokens.ts), unlike
       # the two below.
       - key: GOOGLE_OAUTH_CLIENT_ID
-        value: 181149482891-5f6ftoud3v61dfoogroe758319a0j23h.apps.googleusercontent.com
+      value: 181149482891-6vqoim5nll6l8eirnl9v7669v9f7ns74.apps.googleusercontent.com
       - key: GOOGLE_OAUTH_CLIENT_SECRET
         sync: false
       # Generate a FRESH one for production — do not reuse the value from
