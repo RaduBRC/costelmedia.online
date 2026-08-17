@@ -7,13 +7,10 @@
  */
 import { Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../context/AuthContext.js";
 
 const CONTACT_EMAIL = "contact@costelmedia.online";
 
 export default function Footer(): JSX.Element {
-  const { session } = useAuth();
-
   return (
     <footer className="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
@@ -42,8 +39,15 @@ export default function Footer(): JSX.Element {
               <a href="/#pricing" className="text-xs text-slate-600 hover:text-violet-600 dark:text-slate-300 dark:hover:text-violet-400">
                 Pricing
               </a>
-              <Link to={session ? "/admin/dashboard" : "/login"} className="text-xs text-slate-600 hover:text-violet-600 dark:text-slate-300 dark:hover:text-violet-400">
-                {session ? "Dashboard" : "Login"}
+              {/* Both kept as separate links (not just one that swaps
+                  label based on session) — /admin/dashboard already
+                  redirects to /login on its own if there's no session, so
+                  showing both is never a dead end either way. */}
+              <Link to="/login" className="text-xs text-slate-600 hover:text-violet-600 dark:text-slate-300 dark:hover:text-violet-400">
+                Login
+              </Link>
+              <Link to="/admin/dashboard" className="text-xs text-slate-600 hover:text-violet-600 dark:text-slate-300 dark:hover:text-violet-400">
+                Dashboard
               </Link>
             </div>
             <div className="flex flex-col gap-2">
