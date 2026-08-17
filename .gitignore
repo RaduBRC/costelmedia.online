@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# Compiled by `npm run build:widget` (vite.widget.config.ts) from
+# src/widget/widgetSource.ts — a generated artifact, not source. The rest
+# of public/ (icons/, manifest.webmanifest, sw-advanced.js) is real,
+# committed source.
+public/widget.js
+.env
+.env.local
+*.log
+.DS_Store

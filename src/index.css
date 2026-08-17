@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light dark;
+}
+
+html {
+  /* iOS Safari bumps text size in landscape/zoomed contexts unless told
+     not to — this app already sets its own responsive type scale via
+     Tailwind classes, so that auto-adjustment just causes inconsistent
+     layouts rather than helping anyone. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  /* Suppresses the default gray/blue flash Android/iOS draw on tap —
+     every interactive element in this app supplies its own `active:`
+     Tailwind state instead (real, visible touch feedback, just not the
+     browser's unstyled default). */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Removes the ~300ms tap-response delay some mobile browsers still apply
+   while waiting to see if a tap becomes a double-tap-to-zoom gesture.
+   Safe to apply everywhere here: nothing in this app relies on
+   double-tap-zoom as a feature. */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* VoiceCallSimulator's mobile call card "speaking" indicator (bars pulse
+   while status === "speaking"). Stylized, not real amplitude — the Web
+   Speech API's SpeechSynthesis doesn't expose the synthesized audio as a
+   stream/AudioNode, so there's no signal to actually analyze; this reads
+   as "the AI is talking" without claiming to visualize its audio. */
+@keyframes waveform-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    /* Environment */
+    "target": "es2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+
+    /* Emit — Vite/esbuild does the actual transpilation, tsc just checks. */
+    "noEmit": true,
+
+    /* Strictness */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    /* Interop / Module */
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/components/**/*.tsx",
+    "src/App.tsx",
+    "src/main.tsx",
+    "src/lib/**/*.ts",
+    "src/hooks/**/*.ts",
+    "src/types/**/*.ts",
+    "src/vite-env.d.ts",
+    "src/db/offlineDb.ts",
+    "src/context/**/*.tsx",
+    "src/notifications/tokenBridge.ts"
+  ]
+}

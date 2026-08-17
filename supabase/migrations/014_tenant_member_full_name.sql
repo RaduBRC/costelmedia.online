@@ -1,0 +1,11 @@
+-- 014_tenant_member_full_name.sql
+-- The one column the requested `tenant_users` schema had that
+-- `tenant_members` (003_security_rls.sql) didn't: a human-readable name
+-- for the person, not just their auth.users id. Everything else in that
+-- request already exists under a different name — see this migration's
+-- own PR/commit message equivalent (the assistant's turn) for the full
+-- mapping: tenant_users -> tenant_members, get_auth_tenant_id() ->
+-- public.current_tenant_id(), the on-signup trigger ->
+-- seed_owner_as_tenant_admin()/sync_user_tenant_claim() +
+-- tenantProvisioning.ts's explicit registration flow.
+alter table public.tenant_members add column if not exists full_name text;

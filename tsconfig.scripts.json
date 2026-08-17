@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["ES2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    // scripts/seedData.ts imports its src/ dependencies via literal .ts
+    // specifiers (see that file's header comment for why) — it's executed
+    // directly by Node's --experimental-strip-types, never compiled by
+    // tsc, so this pairs safely with noEmit above.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["scripts/**/*.ts", "src/db/**/*.ts", "src/types/**/*.ts"],
+  "exclude": ["src/db/offlineDb.ts"]
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover (not maximum-scale/user-scalable=no — disabling
+         pinch-zoom is a WCAG 1.4.4 failure) opts into the safe-area-inset-*
+         env() vars used below for notch/home-indicator padding. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>CostelMedia — AI Voice &amp; Chat Receptionist</title>
+    <meta
+      name="description"
+      content="CostelMedia answers calls, chats, and website messages with a real AI voice agent and books the appointment automatically — for clinics, salons, auto shops, legal practices, and more."
+    />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- iOS "Add to Home Screen": Safari doesn't fully honor the standard
+         manifest above for standalone launch/icon/title even on recent
+         versions — these Apple-specific tags are still the reliable path.
+         Android/Chrome read the manifest directly and need none of this. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Booking AI" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["ES2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "tests/**/*.ts",
+    "src/agent/**/*.ts",
+    "src/auth/**/*.ts",
+    "src/calendar/**/*.ts",
+    "src/channels/**/*.ts",
+    "src/cron/**/*.ts",
+    "src/db/**/*.ts",
+    "src/api/**/*.ts",
+    "src/notifications/**/*.ts",
+    "src/server/**/*.ts",
+    "src/types/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/telephony/**/*.ts",
+    "src/analytics/**/*.ts"
+  ],
+  "exclude": ["src/db/offlineDb.ts", "src/notifications/tokenBridge.ts"]
+}
