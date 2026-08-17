@@ -63,8 +63,34 @@ services:
         sync: false
       - key: TWILIO_WHATSAPP_NUMBER
         sync: false
-      # Set this to this service's actual Render URL once known — Twilio
-      # signature verification needs to reconstruct the exact webhook URL
-      # it signed (see src/api/webhooks.ts).
+      # This service's own public origin (api.costelmedia.online, CNAMEd to
+      # this Render service — see the conversation this was decided in).
+      # Twilio signature verification needs to reconstruct the exact
+      # webhook URL it signed (see src/api/webhooks.ts), and
+      # GOOGLE_OAUTH_REDIRECT_URI below has to exactly match what's
+      # registered on the OAuth client in Google Cloud Console.
       - key: PUBLIC_WEBHOOK_BASE_URL
+        value: https://api.costelmedia.online
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        value: https://api.costelmedia.online/api/integrations/google/callback
+      # The frontend's own origin — where /callback and password-reset
+      # links send the browser back to (see googleIntegration.ts,
+      # ForgotPasswordPage.tsx).
+      - key: FRONTEND_ORIGIN
+        value: https://costelmedia.online
+      # CORS allowlist (src/server/app.ts) — both the apex and www, since
+      # either is a valid way a visitor reaches the frontend.
+      - key: ALLOWED_ORIGINS
+        value: https://costelmedia.online,https://www.costelmedia.online
+      # Not secret — the OAuth Client ID is already public in every
+      # consent URL this app generates (see googleOAuthTokens.ts), unlike
+      # the two below.
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        value: 181149482891-5f6ftoud3v61dfoogroe758319a0j23h.apps.googleusercontent.com
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      # Generate a FRESH one for production — do not reuse the value from
+      # any local .env. See googleOAuthTokens.ts's own comment for the
+      # generation command.
+      - key: GOOGLE_OAUTH_TOKEN_ENCRYPTION_KEY
         sync: false
