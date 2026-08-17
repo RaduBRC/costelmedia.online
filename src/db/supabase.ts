@@ -1025,6 +1025,22 @@ export async function listClientProfiles(tenantId: string): Promise<ClientProfil
 // appointments
 // ---------------------------------------------------------------------------
 
+/**
+ * Thrown when a booking attempt loses a race for a slot — either
+ * googleCalendarEngine.ts's own application-level re-check catches it
+ * first, or (if two requests land within the same few milliseconds and
+ * both pass that check) the database itself does: 020_appointments_no_overlap.sql
+ * adds a GiST exclusion constraint that makes two overlapping *confirmed*
+ * appointments for the same tenant physically impossible to insert,
+ * caught below via Postgres error code 23P01 (exclusion_violation). Same
+ * error type either way, so groqAgent.ts's handling doesn't need to know
+ * which layer caught it.
+ */
+export class SlotNoLongerAvailableError extends Error {}
+
+/** Postgres error code for "conflicting key value violates exclusion constraint" — see 020_appointments_no_overlap.sql. */
+const POSTGRES_EXCLUSION_VIOLATION = "23P01";
+
 export async function insertAppointment(input: {
   tenantId: string;
   clientId: string | null;
@@ -1050,6 +1066,11 @@ export async function insertAppointment(input: {
     .select("*")
     .single();
 
+  if (error?.code === POSTGRES_EXCLUSION_VIOLATION) {
+    throw new SlotNoLongerAvailableError(
+      `The ${input.startTime}–${input.endTime} slot is no longer available — it was booked by someone else in the meantime.`,
+    );
+  }
   if (error || !data) {
     throw new Error(`Failed to insert appointment: ${error?.message ?? "unknown error"}`);
   }

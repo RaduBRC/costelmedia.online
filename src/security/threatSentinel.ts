@@ -19,6 +19,7 @@
  * with a short TTL, so adding a new rule is an INSERT, not a deploy.
  */
 import { getActiveBlacklistedPatterns, insertSecurityLog } from "../db/supabase.js";
+import { redactPii } from "../agent/guardrails.js";
 import type { SecurityChannel, ThreatCategory, ThreatEvaluation } from "../types/index.js";
 
 const CACHE_TTL_MS = 5 * 60_000;
@@ -105,7 +106,15 @@ export interface ThreatCheckInput {
  */
 export async function evaluateThreat(input: ThreatCheckInput): Promise<ThreatEvaluation> {
   const patterns = await getCompiledPatterns();
-  const text = input.message;
+  // This runs as middleware *before* groqAgent.ts's sanitizeUserInput
+  // ever sees the message — it's the one place a raw client message gets
+  // examined pre-sanitization, and security_logs.rawPrompt used to store
+  // it verbatim, PII included. redactPii doesn't touch any of the
+  // injection/SQL-probe phrasing these patterns look for (the two never
+  // overlap in shape), so redacting first changes nothing about scoring —
+  // it's still the exact same audit trail, just without a caller's actual
+  // CNP/IBAN/phone/email sitting in it.
+  const text = redactPii(input.message);
 
   let bestSeverity = 0;
   let bestCategory: ThreatCategory = "none";

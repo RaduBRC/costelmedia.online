@@ -9,7 +9,7 @@
  * to a single small completion and only looping further when the model
  * actually requests a tool call.
  */
-import { bookSlot, deleteCalendarEvent, getAvailableSlots, SlotNoLongerAvailableError } from "../calendar/googleCalendarEngine.js";
+import { bookSlot, deleteCalendarEvent, getAvailableSlots } from "../calendar/googleCalendarEngine.js";
 import { GoogleServiceAccountNotConfiguredError } from "../auth/googleServiceAccount.js";
 import {
   getAppointmentById,
@@ -18,6 +18,7 @@ import {
   insertConversationLog,
   listFaqs,
   listServices,
+  SlotNoLongerAvailableError,
   updateAppointmentStatus,
   updateClientToneProfile,
 } from "../db/supabase.js";

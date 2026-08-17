@@ -35,28 +35,19 @@ import {
   isGoogleServiceAccountConfigured,
   loadGoogleServiceAccountCredentials,
 } from "../auth/googleServiceAccount.js";
-import { getOrCreateClientProfile, getTenantById, insertAppointment, listAppointmentsInRange, updateClientName } from "../db/supabase.js";
+import {
+  getOrCreateClientProfile,
+  getTenantById,
+  insertAppointment,
+  listAppointmentsInRange,
+  SlotNoLongerAvailableError,
+  updateClientName,
+} from "../db/supabase.js";
 import type { AppointmentRequest, BookingConfirmation, Slot, Weekday, WeekdayHours } from "../types/index.js";
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
 export const CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"] as const;
 const SLOT_INTERVAL_MINUTES = 30;
-
-/**
- * Thrown by bookSlot's own conflict re-check (see below) — distinct from
- * a generic Error so groqAgent.ts can give the model specific guidance
- * ("tell the client this exact slot just got taken, ask them to pick a
- * different time") instead of the generic calendar-unavailable apology.
- *
- * This check narrows the double-booking window but does not close it
- * mathematically: it's still a check-then-write with no database-level
- * exclusion constraint, so two requests landing in the same few
- * milliseconds could both pass the check before either writes. Closing
- * that fully needs a Postgres exclusion constraint (tstzrange + GiST) on
- * appointments, which is a real migration, not an application-layer fix —
- * left as a follow-up.
- */
-export class SlotNoLongerAvailableError extends Error {}
 
 const WEEKDAYS_BY_UTC_INDEX: readonly Weekday[] = [
   "sunday",

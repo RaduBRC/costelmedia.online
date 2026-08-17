@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  HelpCircle,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -38,6 +39,7 @@ const BUSINESS_NAV: NavItem[] = [
   { to: "/admin/clients", label: "Client Intelligence", icon: Users },
   { to: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/admin/services", label: "Service Catalog", icon: Wrench },
+  { to: "/admin/faqs", label: "FAQs", icon: HelpCircle },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ];
 

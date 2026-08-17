@@ -15,6 +15,7 @@ import { AuthProvider } from "./context/AuthContext.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
 import CalendarPage from "./pages/CalendarPage.js";
 import ClientsPage from "./pages/ClientsPage.js";
+import FaqsPage from "./pages/FaqsPage.js";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage.js";
 import LandingPage from "./pages/LandingPage.js";
 import OverviewPage from "./pages/OverviewPage.js";
@@ -49,6 +50,7 @@ export default function App(): JSX.Element {
               <Route path="/admin/clients" element={<ClientsPage />} />
               <Route path="/admin/analytics" element={<AnalyticsPage />} />
               <Route path="/admin/services" element={<ServicesPage />} />
+              <Route path="/admin/faqs" element={<FaqsPage />} />
               <Route path="/admin/settings" element={<SettingsPage />} />
               <Route path="/admin/tools/chat" element={<ChatToolPage />} />
               <Route path="/admin/tools/voice" element={<VoiceToolPage />} />
