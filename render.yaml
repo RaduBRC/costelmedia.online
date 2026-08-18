@@ -23,7 +23,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: "8787"
+        value: "10000"
       - key: CRON_ENABLED
         value: "true"
       - key: APNS_USE_SANDBOX
