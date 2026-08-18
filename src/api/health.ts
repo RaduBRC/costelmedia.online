@@ -76,7 +76,8 @@ async function checkSupabase(): Promise<CheckResult> {
 }
 
 async function checkGoogleCalendar(): Promise<CheckResult> {
-  if (!process.env["GOOGLE_SERVICE_ACCOUNT_EMAIL"] || !process.env["GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY"]) {
+  const rawKey = process.env["GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY"];
+  if (!process.env["GOOGLE_SERVICE_ACCOUNT_EMAIL"] || !rawKey) {
     return { status: "not_configured", detail: "Google service account credentials not set." };
   }
   try {
@@ -84,7 +85,20 @@ async function checkGoogleCalendar(): Promise<CheckResult> {
     await withTimeout(getGoogleAccessToken(credentials, CALENDAR_SCOPES), CHECK_TIMEOUT_MS, "Google Calendar token check");
     return { status: "ok" };
   } catch (error) {
-    return { status: "down", detail: error instanceof Error ? error.message : "Unknown error." };
+    const message = error instanceof Error ? error.message : "Unknown error.";
+    // TEMPORARY diagnostic (no key material exposed — only shape/metadata)
+    // to pin down exactly how the stored GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+    // value is malformed. Remove once the underlying secret is fixed.
+    const diag = {
+      length: rawKey.length,
+      hasLiteralNewline: rawKey.includes("\n"),
+      hasEscapedNewline: rawKey.includes("\\n"),
+      hasBeginMarker: rawKey.includes("-----BEGIN"),
+      hasEndMarker: rawKey.includes("-----END"),
+      firstChar: JSON.stringify(rawKey[0]),
+      lastChar: JSON.stringify(rawKey[rawKey.length - 1]),
+    };
+    return { status: "down", detail: `${message} | diag=${JSON.stringify(diag)}` };
   }
 }
 
