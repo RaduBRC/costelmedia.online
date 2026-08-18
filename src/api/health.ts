@@ -98,6 +98,14 @@ function overallStatus(checks: CheckResult[]): "ok" | "degraded" | "down" {
   return "ok";
 }
 
+// Lightweight liveness check for the deploy platform's health check.
+// Deliberately does NOT call Groq/Supabase/Google — a transient
+// third-party outage must never fail the deploy. See /health above
+// for the full dependency status report.
+healthRouter.get("/healthz", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "ok" });
+});
+
 healthRouter.get("/health", async (_req: Request, res: Response) => {
   const [groq, supabase, googleCalendar] = await Promise.all([checkGroq(), checkSupabase(), checkGoogleCalendar()]);
   const status = overallStatus([groq, supabase, googleCalendar]);
