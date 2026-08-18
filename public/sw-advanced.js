@@ -18,7 +18,7 @@
 // handler below, sent by src/notifications/tokenBridge.ts on every auth
 // state change (login, logout, token refresh).
 
-const STATIC_CACHE_NAME = "static-shell-v1";
+const STATIC_CACHE_NAME = "static-shell-v2";
 const STATIC_SHELL_URLS = ["/", "/manifest.webmanifest", "/icons/appointment-192.png", "/icons/badge-72.png"];
 
 const DB_NAME = "ai-booking-offline";
@@ -133,7 +133,6 @@ function isApiDataRequest(url) {
 }
 
 function isStaticAssetRequest(request, url) {
-  if (request.mode === "navigate") return true;
   return url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") || url.pathname === "/manifest.webmanifest";
 }
 
@@ -148,6 +147,31 @@ async function cacheFirst(request) {
     cache.put(request, response.clone());
   }
   return response;
+}
+
+// Navigations (loading "/" itself) must NEVER be cache-first: the shell's
+// script/link tags point at content-hashed filenames that change on every
+// deploy, so an old cached "/" keeps referencing assets that no longer
+// exist post-deploy. Vercel's SPA rewrite then serves index.html in their
+// place (200, wrong content-type for a JS module), which the browser
+// fails to execute — silently blank page, no console error. Network-first
+// means every online visit gets the current shell; the cache is only a
+// fallback for genuinely offline loads.
+async function networkFirstWithCacheFallback(request) {
+  const cache = await caches.open(STATIC_CACHE_NAME);
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (networkError) {
+    const cached = await cache.match(request);
+    if (cached) {
+      return cached;
+    }
+    throw networkError;
+  }
 }
 
 async function networkFirstWithIndexedDbFallback(request, url) {
@@ -184,6 +208,8 @@ self.addEventListener("fetch", (event) => {
 
   if (isApiDataRequest(url)) {
     event.respondWith(networkFirstWithIndexedDbFallback(request, url));
+  } else if (request.mode === "navigate") {
+    event.respondWith(networkFirstWithCacheFallback(request));
   } else if (isStaticAssetRequest(request, url)) {
     event.respondWith(cacheFirst(request));
   }
