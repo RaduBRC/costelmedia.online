@@ -43,6 +43,34 @@ export function isGoogleServiceAccountConfigured(): boolean {
 }
 
 /**
+ * Host dashboards (Render included) routinely mangle a multi-line PEM
+ * private key on paste — either collapsing it to one line with no `\n`
+ * escapes at all, or keeping literal `\n` escapes (handled by the first
+ * replace below). If, after unescaping, the key still isn't proper
+ * multi-line PEM, this reconstructs it from the BEGIN/END markers plus the
+ * base64 body. Skipping this normalization is exactly what produces
+ * Node's opaque `error:1E08010C:DECODER routines::unsupported` at sign
+ * time rather than a clear "missing credentials" error at startup.
+ */
+function normalizePemPrivateKey(raw: string): string {
+  const unescaped = raw.trim().replace(/\\n/g, "\n");
+  if (unescaped.includes("\n")) {
+    return unescaped;
+  }
+
+  const match = /-----BEGIN ([A-Z ]+)-----(.*)-----END ([A-Z ]+)-----/.exec(unescaped);
+  if (!match) {
+    // Doesn't even look like PEM — let the caller's signing attempt fail
+    // with whatever error node:crypto produces rather than guessing further.
+    return unescaped;
+  }
+  const [, beginLabel, body, endLabel] = match;
+  const base64Body = (body ?? "").replace(/\s+/g, "");
+  const wrapped = base64Body.match(/.{1,64}/g)?.join("\n") ?? base64Body;
+  return `-----BEGIN ${beginLabel}-----\n${wrapped}\n-----END ${endLabel}-----\n`;
+}
+
+/**
  * Reads Google service account credentials from environment variables.
  * Throws if either is missing so misconfiguration fails loudly at call time
  * rather than producing a silent, unauthenticated request downstream.
@@ -59,8 +87,7 @@ export function loadGoogleServiceAccountCredentials(): GoogleServiceAccountCrede
 
   return {
     clientEmail,
-    // .env files typically escape newlines; restore them for PEM parsing.
-    privateKey: rawPrivateKey.replace(/\\n/g, "\n"),
+    privateKey: normalizePemPrivateKey(rawPrivateKey),
   };
 }
 
