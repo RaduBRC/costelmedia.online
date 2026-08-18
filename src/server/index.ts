@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   const httpServer = createServer(createApp());
   attachVoiceStreamServer(httpServer);
 
-  httpServer.listen(port, () => {
+  httpServer.listen(port, "0.0.0.0", () => {
     console.log(`AI booking platform API listening on http://localhost:${port}`);
   });
 
