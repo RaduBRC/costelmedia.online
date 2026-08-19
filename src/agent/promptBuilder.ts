@@ -17,41 +17,79 @@ import type { BookingChannel, BusinessType, ClientProfile, Faq, Service, Tenant,
  * is a second, LLM-facing layer on top of that — belt and suspenders, not
  * the only thing preventing it.
  */
+/**
+ * Persona/tone/safety guidance only — deliberately does NOT list which
+ * fields to collect before booking anymore (e.g. "get the make/model
+ * before booking"). That's now REQUIRED_BOOKING_INFO + formatRequiredBookingInfo
+ * below, kept as a single, explicit, auditable source of truth per
+ * vertical instead of being duplicated (and able to drift out of sync)
+ * across two different blocks of the prompt.
+ */
 const BUSINESS_TYPE_RULES: Record<BusinessType, string> = {
   clinic:
     "This is a medical clinic. Use a calm, compassionate, and reassuring tone — patients may be " +
-    "anxious or in discomfort. Never diagnose, give medical advice, or promise a specific provider. " +
-    "Confirm appointment details clearly and offer to answer logistics questions (parking, insurance, " +
-    "what to bring).",
+    "anxious or in discomfort. Never diagnose, give medical advice, or promise a specific provider.",
   restaurant:
-    "This is a restaurant. Keep responses quick, warm, and structured — confirm party size, date, time, " +
-    "and any special requests in a short, scannable format. Avoid long paragraphs; diners are often " +
-    "messaging on the go.",
+    "This is a restaurant. Keep responses quick, warm, and structured, in a short, scannable format. " +
+    "Avoid long paragraphs; diners are often messaging on the go.",
   callcenter:
     "This is a call center handling scheduling requests at volume. Be efficient and professional: get to " +
     "the point, avoid filler, and structure replies so the client can act on them immediately.",
   auto_shop:
-    "This is an auto repair shop. Get the vehicle's make, model, and year plus a description of the " +
-    "issue before booking a service slot — never estimate a repair cost or diagnose a mechanical problem " +
-    "yourself, that's the mechanic's job once the vehicle is seen. Confirm drop-off vs. wait-on-site " +
-    "expectations if the client doesn't specify.",
+    "This is an auto repair shop. Never estimate a repair cost or diagnose a mechanical problem yourself " +
+    "— that's the mechanic's job once the vehicle is seen. Confirm drop-off vs. wait-on-site expectations " +
+    "if the client doesn't specify.",
   salon:
-    "This is a hair/beauty salon. Confirm which service and (if the client has a preference) which " +
-    "stylist/technician before booking — services often have different durations, so always check " +
-    "check_available_slots with the right service type rather than assuming a default length.",
+    "This is a hair/beauty salon. Services often have different durations — always call " +
+    "check_available_slots with the client's actual chosen service rather than assuming a default length.",
   legal_services:
-    "This is a professional services / legal practice booking client consultations. Confirm the general " +
-    "topic or reason for the consultation (e.g. \"contract review\", \"initial case evaluation\") and its " +
-    "expected duration before booking — never give legal advice, opinions on a case's merits, or any " +
-    "information that could be construed as counsel yourself; that's strictly the attorney's role once " +
-    "the consultation happens. Keep the tone professional and discreet — clients may be discussing " +
-    "sensitive matters.",
+    "This is a professional services / legal practice booking client consultations. Keep the tone " +
+    "professional and discreet — clients may be discussing sensitive matters; never give legal advice, " +
+    "opinions on a case's merits, or any information that could be construed as counsel yourself — that's " +
+    "strictly the attorney's role once the consultation happens.",
   general_services:
     "This is a general-purpose service business without a more specific vertical configured. Stay " +
-    "flexible: confirm exactly what service the client needs, its date/time, and their contact details, " +
-    "without assuming any industry-specific context (no medical, legal, automotive, or culinary framing) " +
-    "unless the client's own words introduce it.",
+    "flexible and don't assume any industry-specific context (no medical, legal, automotive, or culinary " +
+    "framing) unless the client's own words introduce it.",
 };
+
+/**
+ * The vertical-specific information that actually needs collecting in
+ * conversation before create_appointment gets called — see
+ * formatRequiredBookingInfo below for how this turns into a hard
+ * "collect exactly this, nothing more" instruction. Every vertical also
+ * needs a date/time and the client's name + a phone number regardless —
+ * those are create_appointment's own required parameters (groqAgent.ts)
+ * and are appended once in formatRequiredBookingInfo rather than repeated
+ * in every row here.
+ */
+const REQUIRED_BOOKING_INFO: Record<BusinessType, string[]> = {
+  auto_shop: ["The vehicle's make and model", "A description of the issue"],
+  callcenter: ["A description of the issue or request", "Urgency level (routine vs. urgent)", "A callback phone number"],
+  clinic: ["The type of service/appointment needed", "Preferred practitioner, if the client has one"],
+  salon: ["The type of service needed", "Preferred stylist/technician, if the client has one"],
+  legal_services: ["The general topic or reason for the consultation (never the case details themselves)"],
+  restaurant: ["Party size", "Any special requests (dietary, seating, occasion)"],
+  general_services: ["The specific service needed"],
+};
+
+/**
+ * Renders REQUIRED_BOOKING_INFO[businessType] plus the two universal
+ * fields (date/time, name + phone) as a hard collection checklist, with
+ * an explicit "nothing more than this" boundary — directly enforces "only
+ * collect what this niche's booking actually needs" rather than leaving
+ * the model to infer it from BUSINESS_TYPE_RULES' looser tone guidance.
+ */
+function formatRequiredBookingInfo(businessType: BusinessType): string {
+  const fields = [...REQUIRED_BOOKING_INFO[businessType], "Preferred date and time", "The client's name and a phone number"];
+  return (
+    "Before calling create_appointment, collect exactly this information for this business — no more, no " +
+    `fewer:\n${fields.map((field) => `- ${field}`).join("\n")}\n` +
+    "Do not ask for anything outside this list (insurance details, payment information, full home address, " +
+    "vehicle VIN, etc.) unless the client volunteers it unprompted — asking for more than a booking " +
+    "actually needs slows the client down and isn't this business's job at this stage."
+  );
+}
 
 const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   clinic: "medical clinic",
@@ -72,14 +110,21 @@ const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
 // a different language and are read, not heard.
 // ---------------------------------------------------------------------------
 
-const VOICE_GREETING_BY_BUSINESS_TYPE: Record<BusinessType, string> = {
-  clinic: "Bună ziua! Bine ați venit la clinica noastră. Cu ce vă pot ajuta astăzi?",
-  restaurant: "Bună ziua! Bine ați venit la restaurantul nostru. Cu ce vă pot ajuta astăzi?",
-  callcenter: "Bună ziua! Cu ce vă pot ajuta astăzi?",
-  auto_shop: "Bună ziua! Ați sunat la service-ul nostru auto. Cu ce vă pot ajuta astăzi?",
-  salon: "Bună ziua! Bine ați venit la salonul nostru. Cu ce vă pot ajuta astăzi?",
-  legal_services: "Bună ziua! Ați sunat la cabinetul nostru. Cu ce vă pot ajuta astăzi?",
-  general_services: "Bună ziua! Bine ați venit. Cu ce vă pot ajuta astăzi?",
+/**
+ * Romanian noun phrase for "serviciul de {business_type}" in the default
+ * greeting template below — deliberately a natural service-noun, not the
+ * raw BusinessType enum value or its English label, so the generated
+ * sentence reads correctly in Romanian (e.g. "serviciul de programări
+ * medicale", not "serviciul de clinic").
+ */
+const BUSINESS_TYPE_LABELS_RO: Record<BusinessType, string> = {
+  clinic: "programări medicale",
+  restaurant: "rezervări",
+  callcenter: "suport clienți",
+  auto_shop: "reparații auto",
+  salon: "înfrumusețare",
+  legal_services: "consultanță juridică",
+  general_services: "programări",
 };
 
 /**
@@ -90,17 +135,25 @@ const VOICE_GREETING_BY_BUSINESS_TYPE: Record<BusinessType, string> = {
  * asking the model to reproduce exact phrasing every time, and skips a
  * Groq round-trip on the one turn where the content never varies anyway.
  *
- * `tenant.greetingMessage`, if set, wins over the business-type default —
- * supports a literal "{company_name}" placeholder (replaced with
- * tenant.name) so a tenant can customize wording without needing to
- * retype their own name into it.
+ * `tenant.greetingMessage`, if set, wins over the dynamic default —
+ * supports literal "{company_name}" and "{business_type}" placeholders
+ * (substituted the same way the default template below builds itself) so
+ * a tenant can customize wording without retyping their own name/industry
+ * into it.
+ *
+ * With no custom greeting configured, every tenant gets a greeting built
+ * from ITS OWN name and industry — there is no shared, hardcoded business
+ * name or vertical-specific canned phrase (e.g. "clinica noastră") baked
+ * in anywhere here; a clinic, a salon, and a call center all go through
+ * this exact same template, just with different tenant/label values
+ * substituted in.
  */
 export function getVoiceGreeting(tenant: Tenant): string {
-  if (tenant.greetingMessage?.trim()) {
-    return tenant.greetingMessage.trim().replaceAll("{company_name}", tenant.name);
-  }
-  return VOICE_GREETING_BY_BUSINESS_TYPE[tenant.businessType];
+  const template = tenant.greetingMessage?.trim() || DEFAULT_GREETING_TEMPLATE;
+  return template.replaceAll("{company_name}", tenant.name).replaceAll("{business_type}", BUSINESS_TYPE_LABELS_RO[tenant.businessType]);
 }
+
+const DEFAULT_GREETING_TEMPLATE = "Bună ziua, ați sunat la {company_name}, serviciul de {business_type}. Cu ce vă pot ajuta?";
 
 const VOICE_MANNERS_BLOCK =
   "This conversation is a live phone call, conducted entirely in Romanian. The caller has already " +
@@ -298,6 +351,7 @@ export function buildSystemPrompt(
       "bring in medical disclaimers, legal disclaimers, restaurant-style phrasing, or any other vertical's " +
       "conventions unless this business actually is that vertical.",
     BUSINESS_TYPE_RULES[tenant.businessType],
+    formatRequiredBookingInfo(tenant.businessType),
     describeToneOfVoice(tenant.toneOfVoice),
     // Without this, the model has no grounding for what "today"/"tomorrow"/
     // an explicit-but-yearless date actually resolves to, and silently

@@ -280,18 +280,35 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
       // awaits a Supabase round-trip (getOrCreateClientProfile) before adding
       // it to the in-memory map, so speaking the greeting before that
       // resolves would mean it never actually plays.
+      //
+      // getTenantById has no such dependency — it doesn't need the session
+      // to exist first — so it runs CONCURRENTLY with createCallSession via
+      // Promise.all rather than after it. That's a real, measurable chunk
+      // of "silence before the greeting starts" removed: two sequential
+      // Supabase round-trips before the ElevenLabs request could even
+      // begin, down to whichever of the two is slower. A tenant-lookup
+      // failure alone must not abort the call the way a session-creation
+      // failure does (that's still fatal — nothing else here works without
+      // a session), so it's caught and defaults to null internally rather
+      // than rejecting the whole Promise.all.
       void (async () => {
+        let tenant: Tenant | null;
         try {
-          await createCallSession({ callSid, streamSid: sid, tenantId, callerPhone });
+          [, tenant] = await Promise.all([
+            createCallSession({ callSid, streamSid: sid, tenantId, callerPhone }),
+            getTenantById(tenantId).catch((error: unknown) => {
+              console.error(`Failed to fetch tenant ${tenantId} for call stream ${sid} (falling back to a generic greeting):`, error);
+              return null;
+            }),
+          ]);
         } catch (error) {
           console.error(`Failed to create call session for ${sid}:`, error);
           return;
         }
+        cachedTenant = tenant;
+        const greeting = tenant ? getVoiceGreeting(tenant) : DEFAULT_VOICE_GREETING;
+        appendTranscriptTurn(sid, "agent", greeting);
         try {
-          const tenant = await getTenantById(tenantId);
-          cachedTenant = tenant;
-          const greeting = tenant ? getVoiceGreeting(tenant) : DEFAULT_VOICE_GREETING;
-          appendTranscriptTurn(sid, "agent", greeting);
           await speak(sid, greeting);
         } catch (error) {
           console.error(`Failed to speak greeting for call stream ${sid}:`, error);

@@ -73,7 +73,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bot, Keyboard, Mic, MicOff, Phone, PhoneOff, Send, User, Volume2 } from "lucide-react";
+import { getVoiceGreeting } from "../agent/promptBuilder.js";
 import { sendChatMessage, synthesizeSpeech, TtsError } from "../lib/api.js";
+import type { Tenant } from "../types/index.js";
 import { useToast } from "./Toast.js";
 
 const SPEECH_LANG = "ro-RO";
@@ -83,10 +85,13 @@ const SPEECH_LANG = "ro-RO";
 // heuristic — see startMicrophoneListening's continuous=true comment for
 // why that heuristic can't be used directly.
 const SILENCE_TIMEOUT_MS = 2000;
-// Scripted, not Groq-generated, same reasoning as the real voice
-// pipeline's greeting (see src/agent/promptBuilder.ts's getVoiceGreeting):
-// guaranteed exact wording, spoken immediately with no LLM round-trip.
-const VOICE_GREETING = "Bună ziua! Bine ați venit la clinica noastră. Cu ce vă pot ajuta astăzi?";
+// Only used if `tenant` hasn't loaded yet when the call starts (a slow
+// GET /api/tenants/:id, or the caller hasn't set a tenant id at all) —
+// under normal use, the greeting comes from the exact same
+// getVoiceGreeting(tenant) the real Twilio pipeline uses
+// (src/agent/promptBuilder.ts), so this simulator hears the same
+// tenant-specific greeting a real caller would, not a generic stand-in.
+const GENERIC_FALLBACK_GREETING = "Bună ziua! Cu ce vă pot ajuta astăzi?";
 const MAX_DEBUG_LOG_LINES = 60;
 
 type CallStatus = "idle" | "connecting" | "listening" | "processing" | "speaking" | "error";
@@ -161,7 +166,7 @@ function SpeakingWaveform({ active }: { active: boolean }): JSX.Element {
   );
 }
 
-export default function VoiceCallSimulator({ tenantId }: { tenantId: string }): JSX.Element {
+export default function VoiceCallSimulator({ tenantId, tenant }: { tenantId: string; tenant: Tenant | null }): JSX.Element {
   const { showToast } = useToast();
   const [clientPhone, setClientPhone] = useState("+40712345678");
   const [callActive, setCallActive] = useState(false);
@@ -581,9 +586,10 @@ export default function VoiceCallSimulator({ tenantId }: { tenantId: string }): 
    * own microphone.
    */
   const speakGreetingThenListen = useCallback(() => {
-    setTurns([{ id: crypto.randomUUID(), role: "agent", text: VOICE_GREETING }]);
+    const greeting = tenant ? getVoiceGreeting(tenant) : GENERIC_FALLBACK_GREETING;
+    setTurns([{ id: crypto.randomUUID(), role: "agent", text: greeting }]);
     setCallStatus("speaking");
-    void speak(VOICE_GREETING).then(() => {
+    void speak(greeting).then(() => {
       if (!callActiveRef.current) return; // call was ended while the greeting was still playing
       if (sttSupportedRef.current && micAvailableRef.current) {
         startMicrophoneListening();
@@ -595,7 +601,7 @@ export default function VoiceCallSimulator({ tenantId }: { tenantId: string }): 
         setCallStatus("idle");
       }
     });
-  }, [speak, startMicrophoneListening, setCallStatus]);
+  }, [tenant, speak, startMicrophoneListening, setCallStatus]);
 
   /**
    * Sequential, no overlapping async calls — each step below waits for
