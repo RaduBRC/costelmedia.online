@@ -36,7 +36,9 @@ function logSupabaseKeyDiagnostic(): void {
   }
   const parts = key.split(".");
   if (parts.length !== 3) {
-    console.warn(`[DIAG supabase-key] not JWT-shaped (${parts.length} segment(s), length ${key.length}).`);
+    console.warn(
+      `[DIAG supabase-key] not JWT-shaped (${parts.length} segment(s), length ${key.length}) (${key.slice(0, 8)}...).`,
+    );
     return;
   }
   try {
