@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { AlertCircle, Info, LogIn, Loader2, Sparkles } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { Location } from "react-router-dom";
+import OAuthButtons from "./OAuthButtons.js";
 import { useAuth } from "../context/AuthContext.js";
 import { REMEMBER_ME_FLAG_KEY } from "../lib/supabaseClient.js";
 
@@ -11,7 +12,7 @@ interface LocationState {
 }
 
 export default function Login(): JSX.Element {
-  const { login, loginWithGoogle, sessionExpiredMessage } = useAuth();
+  const { login, sessionExpiredMessage } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -19,18 +20,6 @@ export default function Login(): JSX.Element {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
-
-  const handleGoogleSignIn = (): void => {
-    setError(null);
-    setIsGoogleSubmitting(true);
-    loginWithGoogle().catch((submitError: unknown) => {
-      setError(submitError instanceof Error ? submitError.message : "Google sign-in failed.");
-      setIsGoogleSubmitting(false);
-    });
-    // No `.finally` — a successful call navigates the whole browser away
-    // to Google, so there's nothing left here to reset isGoogleSubmitting on.
-  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -91,15 +80,7 @@ export default function Login(): JSX.Element {
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={handleGoogleSignIn}
-          disabled={isGoogleSubmitting}
-          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-medium text-slate-700 transition active:scale-[0.98] active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:active:bg-slate-800"
-        >
-          {isGoogleSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-          Sign in with Google
-        </button>
+        <OAuthButtons onError={setError} />
 
         <div className="my-5 flex items-center gap-3">
           <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />

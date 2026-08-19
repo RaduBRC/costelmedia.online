@@ -9,8 +9,9 @@
  */
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { AlertCircle, Loader2, LogIn, Sparkles } from "lucide-react";
+import { AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import OAuthButtons from "../components/OAuthButtons.js";
 import { registerTenant } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.js";
 import type { BusinessType } from "../types/index.js";
@@ -31,7 +32,7 @@ const inputClass =
   "mt-1 min-h-12 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-base text-slate-900 outline-none focus:border-violet-500 sm:text-sm dark:border-slate-700 dark:text-slate-100";
 
 export default function RegisterPage(): JSX.Element {
-  const { login, loginWithGoogle } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
 
   const [businessName, setBusinessName] = useState("");
@@ -41,7 +42,6 @@ export default function RegisterPage(): JSX.Element {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -70,18 +70,6 @@ export default function RegisterPage(): JSX.Element {
       });
   };
 
-  const handleGoogleSignUp = (): void => {
-    setError(null);
-    setIsGoogleSubmitting(true);
-    loginWithGoogle().catch((submitError: unknown) => {
-      setError(submitError instanceof Error ? submitError.message : "Google sign-up failed.");
-      setIsGoogleSubmitting(false);
-    });
-    // No `.finally` resetting isGoogleSubmitting on success — a
-    // successful call navigates the whole browser away to Google, so
-    // there's nothing left here to reset it on.
-  };
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10 dark:bg-slate-950">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -103,15 +91,7 @@ export default function RegisterPage(): JSX.Element {
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={handleGoogleSignUp}
-          disabled={isGoogleSubmitting}
-          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-medium text-slate-700 transition active:scale-[0.98] active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:active:bg-slate-800"
-        >
-          {isGoogleSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-          Sign up with Google
-        </button>
+        <OAuthButtons onError={setError} />
 
         <div className="my-5 flex items-center gap-3">
           <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />

@@ -12,7 +12,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
+import type { Provider, Session, User } from "@supabase/supabase-js";
 import { onUnauthorized } from "../lib/authEvents.js";
 import { supabase } from "../lib/supabaseClient.js";
 import { clearServiceWorkerToken, syncTokenToServiceWorker } from "../notifications/tokenBridge.js";
@@ -32,6 +32,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   /** Redirects the browser to Google's consent screen via Supabase Auth's own OAuth flow — distinct from src/auth/googleOAuthTokens.ts's per-tenant Calendar connection, this is sign-in/sign-up only and needs the Google provider enabled in the Supabase dashboard before it does anything. */
   loginWithGoogle: () => Promise<void>;
+  /** Same OAuth mechanism as loginWithGoogle, GitHub provider — also needs enabling in the Supabase dashboard (Authentication → Providers) plus its own OAuth App registered in GitHub before it does anything. */
+  loginWithGithub: () => Promise<void>;
   logout: () => Promise<void>;
   /** Reads the current access token fresh from Supabase (which handles refresh internally) rather than trusting a possibly-stale closure over `session`. */
   getAccessToken: () => Promise<string | null>;
@@ -119,31 +121,35 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   }, []);
 
   /**
-   * Full-page redirect to Google's consent screen; the browser comes back
-   * to `redirectTo` with a session already established (Supabase's own
-   * OAuth callback handling, detectSessionInUrl). Works for both a new
-   * user's first sign-up and a returning user's sign-in — Supabase treats
-   * both the same way for an OAuth provider, there's no separate "register
-   * with Google" call, which is exactly why this always lands on
-   * /onboarding rather than /admin/dashboard directly: tenant_id/tenant_role
-   * only exist for a user once they own a tenant (003_security_rls.sql's
-   * seed_owner_as_tenant_admin trigger), and there's no way to know from
-   * here alone whether this Google account already has one or needs
-   * OnboardingPage.tsx's business-info form. OnboardingPage checks
-   * tenantId itself and redirects straight through to the dashboard for a
-   * returning user, so this is a no-op detour for that case, not a wrong
-   * guess either way.
+   * Full-page redirect to the given provider's consent screen; the browser
+   * comes back to `redirectTo` with a session already established
+   * (Supabase's own OAuth callback handling, detectSessionInUrl). Works
+   * for both a new user's first sign-up and a returning user's sign-in —
+   * Supabase treats both the same way for an OAuth provider, there's no
+   * separate "register with Google/GitHub" call, which is exactly why
+   * this always lands on /onboarding rather than /admin/dashboard
+   * directly: tenant_id/tenant_role only exist for a user once they own a
+   * tenant (003_security_rls.sql's seed_owner_as_tenant_admin trigger),
+   * and there's no way to know from here alone whether this account
+   * already has one or needs OnboardingPage.tsx's business-info form.
+   * OnboardingPage checks tenantId itself and redirects straight through
+   * to the dashboard for a returning user, so this is a no-op detour for
+   * that case, not a wrong guess either way. Shared by loginWithGoogle and
+   * loginWithGithub below — identical mechanism, only the provider differs.
    */
-  const loginWithGoogle = useCallback(async (): Promise<void> => {
+  const loginWithProvider = useCallback(async (provider: Provider): Promise<void> => {
     setSessionExpiredMessage(null);
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
+      provider,
       options: { redirectTo: `${window.location.origin}/onboarding` },
     });
     if (error) {
       throw new Error(error.message);
     }
   }, []);
+
+  const loginWithGoogle = useCallback((): Promise<void> => loginWithProvider("google"), [loginWithProvider]);
+  const loginWithGithub = useCallback((): Promise<void> => loginWithProvider("github"), [loginWithProvider]);
 
   const logout = useCallback(async (): Promise<void> => {
     const { error } = await supabase.auth.signOut();
@@ -169,10 +175,11 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       sessionExpiredMessage,
       login,
       loginWithGoogle,
+      loginWithGithub,
       logout,
       getAccessToken,
     };
-  }, [session, isLoading, sessionExpiredMessage, login, loginWithGoogle, logout, getAccessToken]);
+  }, [session, isLoading, sessionExpiredMessage, login, loginWithGoogle, loginWithGithub, logout, getAccessToken]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

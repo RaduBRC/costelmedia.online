@@ -154,19 +154,32 @@ database trigger (`003_security_rls.sql`) automatically links via
 `tenant_members` — no separate step needed. The new admin then signs in
 through the normal dashboard login and lands on `/admin/dashboard`.
 
-**Google sign-up** goes through a second, authenticated path instead:
-`loginWithGoogle()` (Supabase Auth's own OAuth) creates only the
-`auth.users` row, so the dashboard's `/register` "Sign up with Google"
-button redirects to `/onboarding`, which collects the business
-name/type and calls `POST /api/v1/tenants/onboard` (requires a valid
-session, no request body needed beyond the business info) to create the
-tenant for the now-authenticated user. `/onboarding` is idempotent — a
-returning user who already owns a tenant is bounced straight through to
-`/admin/dashboard` with no form shown. This requires the Google provider
-to be enabled under Authentication → Providers in the Supabase dashboard,
-with its own OAuth client (separate from the per-tenant Google Calendar
-connection in `/admin/settings` — see §7's note in `.env.example` about
-`GOOGLE_OAUTH_CLIENT_ID`, which is for Calendar sync, not sign-in).
+**Google/GitHub sign-up** goes through a second, authenticated path
+instead: `loginWithGoogle()`/`loginWithGithub()` (Supabase Auth's own
+OAuth, via the shared `OAuthButtons.tsx` on both `/login` and `/register`)
+create only the `auth.users` row, so either "Continue with…" button
+redirects to `/onboarding`, which collects the business name/type and
+calls `POST /api/v1/tenants/onboard` (requires a valid session, no request
+body needed beyond the business info) to create the tenant for the
+now-authenticated user. `/onboarding` is idempotent — a returning user who
+already owns a tenant is bounced straight through to `/admin/dashboard`
+with no form shown. This same path handles *any* provider identically,
+since it only ever looks at "is there a session," never which provider
+produced it — adding a new one later needs no changes here.
+
+Each provider needs enabling under Authentication → Providers in the
+Supabase dashboard before its button does anything:
+
+- **Google** — needs its own OAuth client (separate from the per-tenant
+  Google **Calendar** connection in `/admin/settings` — see §7's note in
+  `.env.example` about `GOOGLE_OAUTH_CLIENT_ID`, which is for Calendar
+  sync, not sign-in). Register Supabase's callback URL
+  (`https://<project-ref>.supabase.co/auth/v1/callback`) as an authorized
+  redirect URI on that client.
+- **GitHub** — create an OAuth App under GitHub → Settings → Developer
+  settings → OAuth Apps, with the same Supabase callback URL as its
+  "Authorization callback URL," then paste its Client ID/Secret into
+  Supabase's GitHub provider config.
 
 Either way, every new tenant automatically gets its owner added to
 `tenant_members` with `tenant_role = 'tenant_admin'` — a database trigger
