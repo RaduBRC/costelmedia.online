@@ -73,6 +73,35 @@ export class ElevenLabsRequestError extends Error {
   }
 }
 
+/**
+ * Maps an ElevenLabs HTTP status to a short, human-readable diagnosis —
+ * used everywhere an ElevenLabsRequestError gets logged (tts.ts,
+ * voiceStreamServer.ts) and by scripts/test-elevenlabs.ts, so "it failed"
+ * always comes with an actionable "why" instead of just a bare status
+ * code someone has to go look up. Deliberately maps the exact cases this
+ * integration has actually hit in practice (see this session's own
+ * history: a stale/rotated key reads as 401, a plan/quota limit as 429,
+ * a voiceId that doesn't exist on the account as 404) rather than trying
+ * to be an exhaustive HTTP status reference.
+ */
+export function describeElevenLabsStatus(status: number): string {
+  switch (status) {
+    case 401:
+      return "Unauthorized — ELEVENLABS_API_KEY is invalid, revoked, or was rotated without updating every deployment's copy of it.";
+    case 403:
+      return "Forbidden — the API key is valid but lacks a required permission/scope for this action.";
+    case 404:
+      return "Voice not found — ELEVENLABS_VOICE_ID (env default or a tenant's own override) does not exist on this account.";
+    case 429:
+      return "Rate limit / quota exceeded — check usage against the plan limit on the ElevenLabs dashboard.";
+    case 400:
+    case 422:
+      return "Bad request — usually an unsupported model_id/parameter combination for this account's plan.";
+    default:
+      return status >= 500 ? "ElevenLabs-side error — likely a transient outage, not a config problem here." : "Unexpected status.";
+  }
+}
+
 /** One voice as returned by GET /v1/voices — trimmed to what the Settings voice-selector dropdown needs (id, display name, and a short preview clip URL ElevenLabs hosts for most stock/professional voices). */
 export interface ElevenLabsVoice {
   voiceId: string;

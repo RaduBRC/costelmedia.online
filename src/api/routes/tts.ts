@@ -34,6 +34,7 @@ import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import { getTenantById } from "../../db/supabase.js";
 import {
+  describeElevenLabsStatus,
   ElevenLabsRequestError,
   ElevenLabsTimeoutError,
   fetchElevenLabsSpeechStream,
@@ -97,14 +98,14 @@ ttsRouter.post(
           return;
         }
         if (error instanceof ElevenLabsRequestError) {
-          // Two separate log lines, not one concatenated string — the
-          // status code alone (401/404/429/400/...) is usually enough to
-          // tell a human what's wrong at a glance; the raw body (which
-          // ElevenLabs' own message is embedded in — "Unusual activity
-          // detected", "Invalid API key", "Voice ID does not exist", a
-          // missing permission scope, etc.) is the part worth grepping
-          // logs for separately.
-          console.error(`[ElevenLabs API] Request failed — HTTP status: ${error.status}`);
+          // Three separate log lines, not one concatenated string — the
+          // diagnosis (401/404/429/...) is usually enough to tell a human
+          // what's wrong at a glance; the raw body (which ElevenLabs' own
+          // message is embedded in — "Unusual activity detected",
+          // "Invalid API key", "Voice ID does not exist", a missing
+          // permission scope, etc.) is the part worth grepping logs for
+          // separately.
+          console.error(`[ElevenLabs API] Request failed — HTTP ${error.status}: ${describeElevenLabsStatus(error.status)}`);
           console.error(`[ElevenLabs API] Response body: ${error.message}`);
           res.status(502).json({
             error: "ELEVENLABS_FAILED",

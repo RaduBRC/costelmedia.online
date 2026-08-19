@@ -32,7 +32,13 @@ import {
 } from "./callSession.js";
 import { openDeepgramStream } from "./deepgramStt.js";
 import type { DeepgramStreamHandle } from "./deepgramStt.js";
-import { streamTextToSpeech } from "./elevenLabsTts.js";
+import {
+  describeElevenLabsStatus,
+  ElevenLabsNotConfiguredError,
+  ElevenLabsRequestError,
+  ElevenLabsTimeoutError,
+  streamTextToSpeech,
+} from "./elevenLabsTts.js";
 import { rawDataToUtf8String } from "./rawData.js";
 import type { ConversationTurn, Tenant } from "../types/index.js";
 import { evaluateThreat, GENERIC_BLOCKED_REPLY } from "../security/threatSentinel.js";
@@ -156,17 +162,45 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
   async function speak(activeStreamSid: string, text: string): Promise<void> {
     const controller = beginAgentSpeech(activeStreamSid);
     if (!controller) return; // Session already ended (e.g. caller hung up mid-processing).
-    await streamTextToSpeech(
-      text,
-      (chunk) => {
-        if (ws.readyState === ws.OPEN) {
-          sendTwilioMedia(ws, activeStreamSid, chunk);
-        }
-      },
-      controller.signal,
-      cachedTenant?.elevenlabsVoiceId,
-    );
-    endAgentSpeech(activeStreamSid);
+    try {
+      await streamTextToSpeech(
+        text,
+        (chunk) => {
+          if (ws.readyState === ws.OPEN) {
+            sendTwilioMedia(ws, activeStreamSid, chunk);
+          }
+        },
+        controller.signal,
+        cachedTenant?.elevenlabsVoiceId,
+      );
+    } catch (error) {
+      // Specific, actionable diagnosis for the three failure modes that
+      // actually happen in practice (bad/rotated key, quota, missing
+      // voice) — the generic "Voice turn failed" catch in handleUtterance
+      // still logs this too, but only as an opaque Error object, which
+      // isn't enough to tell "wrong key" apart from "ElevenLabs is down"
+      // apart from "not configured at all" at a glance in production logs.
+      if (error instanceof ElevenLabsRequestError) {
+        console.error(
+          `[ElevenLabs API] Call ${activeStreamSid}: TTS request failed — HTTP ${error.status}: ${describeElevenLabsStatus(error.status)}`,
+        );
+        console.error(`[ElevenLabs API] Call ${activeStreamSid}: Response body: ${error.message}`);
+      } else if (error instanceof ElevenLabsTimeoutError) {
+        console.error(`[ElevenLabs API] Call ${activeStreamSid}: TTS request timed out — ${error.message}`);
+      } else if (error instanceof ElevenLabsNotConfiguredError) {
+        console.error(`[ElevenLabs API] Call ${activeStreamSid}: TTS not configured — ${error.message}`);
+      }
+      throw error; // Re-thrown for the existing caller-side catches (greeting / handleUtterance) to handle as before.
+    } finally {
+      // Must run even on failure — without this, a thrown error above
+      // (any of the three cases logged here) left isAgentSpeaking stuck
+      // `true` in callSession.ts for the rest of the call: the caller's
+      // next utterance would then have interruptAgentSpeech() report "yes,
+      // interrupting speech" and send Twilio a spurious "clear" event for
+      // audio that was never actually playing, silently masking the real
+      // failure state instead of just cleanly closing this turn out.
+      endAgentSpeech(activeStreamSid);
+    }
   }
 
   async function handleUtterance(tenantId: string, callerPhone: string, transcript: string): Promise<void> {

@@ -198,6 +198,12 @@ export default function VoiceCallSimulator({ tenantId }: { tenantId: string }): 
   // speaking after the caller has already hung up.
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const micAvailableRef = useRef(false);
+  // Set on the first ElevenLabs failure of a given call so the toast below
+  // fires once per call, not once per reply — every turn still falls back
+  // to browser TTS and logs full detail to the debug panel regardless, this
+  // only throttles the toast so a whole conversation with ElevenLabs down
+  // doesn't spam the same "switched to fallback voice" message every turn.
+  const elevenLabsFailureToastShownRef = useRef(false);
   // Mirrors `status` for reads inside recognition.onend's closure, which
   // is only re-created when `showToast` changes (practically: once) —
   // reading the `status` state variable directly there would always see
@@ -365,10 +371,19 @@ export default function VoiceCallSimulator({ tenantId }: { tenantId: string }): 
         )
         .catch((error: unknown) => {
           logDebug(`ElevenLabs failed (${describeError(error)}). Falling back to Browser Web Speech API...`);
+          // Visible, not just in the debug panel — a failure here means
+          // every reply for the rest of this call sounds different (robotic
+          // browser TTS instead of the real ElevenLabs voice) and staff
+          // testing the call should know why without having to scroll the
+          // debug log to notice. Once per call, not once per reply.
+          if (!elevenLabsFailureToastShownRef.current) {
+            elevenLabsFailureToastShownRef.current = true;
+            showToast("ElevenLabs voice unavailable — falling back to your browser's built-in voice for this call.", "error");
+          }
           return speakWithBrowserTts(text);
         });
     },
-    [speakWithBrowserTts, logDebug],
+    [speakWithBrowserTts, logDebug, showToast],
   );
 
   const stopListening = useCallback(() => {
@@ -603,6 +618,7 @@ export default function VoiceCallSimulator({ tenantId }: { tenantId: string }): 
     unlockSpeechSynthesis();
     unlockAudioPlayback();
     setDebugLog([]);
+    elevenLabsFailureToastShownRef.current = false;
     setMicDenied(false);
     micAvailableRef.current = false;
     callActiveRef.current = true;
