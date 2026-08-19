@@ -82,6 +82,8 @@ const fixtureTenant: Tenant = {
   publicPhoneNumber: null,
   address: null,
   toneOfVoice: "friendly",
+  plan: "starter",
+  requiredBookingFields: null,
 };
 
 function fixtureClientProfile(overrides: Partial<ClientProfile> = {}): ClientProfile {

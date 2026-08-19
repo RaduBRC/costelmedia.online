@@ -25,10 +25,12 @@ import type {
   Service,
   Tenant,
   TenantDailyStat,
+  TenantPlan,
   TenantRole,
   ThreatCategory,
   ToneDistribution,
   ToneOfVoice,
+  VipLead,
   WorkingHours,
 } from "../types/index.js";
 
@@ -68,6 +70,19 @@ type TenantRow = {
   google_token_expiry: string | null;
   google_sync_enabled: boolean;
   tone_of_voice: ToneOfVoice;
+  plan: TenantPlan;
+  required_booking_fields: string[] | null;
+};
+
+type VipLeadRow = {
+  id: string;
+  tenant_id: string;
+  requested_integrations: string[];
+  message: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  status: VipLead["status"];
+  created_at: string;
 };
 
 type ClientProfileRow = {
@@ -236,6 +251,8 @@ export interface Database {
           | "google_token_expiry"
           | "google_sync_enabled"
           | "tone_of_voice"
+          | "plan"
+          | "required_booking_fields"
         > & {
           id?: string;
           created_at?: string;
@@ -257,6 +274,8 @@ export interface Database {
           google_token_expiry?: string | null;
           google_sync_enabled?: boolean;
           tone_of_voice?: ToneOfVoice;
+          plan?: TenantPlan;
+          required_booking_fields?: string[] | null;
         };
         Update: Partial<Omit<TenantRow, "id">>;
         Relationships: [];
@@ -365,6 +384,20 @@ export interface Database {
         Update: Partial<PlatformAdminRow>;
         Relationships: [];
       };
+      vip_leads: {
+        Row: VipLeadRow;
+        Insert: Omit<VipLeadRow, "id" | "created_at" | "status" | "requested_integrations" | "message" | "contact_email" | "contact_phone"> & {
+          id?: string;
+          created_at?: string;
+          status?: VipLeadRow["status"];
+          requested_integrations?: string[];
+          message?: string | null;
+          contact_email?: string | null;
+          contact_phone?: string | null;
+        };
+        Update: Partial<Omit<VipLeadRow, "id" | "tenant_id">>;
+        Relationships: [];
+      };
     };
     Views: {
       v_tenant_daily_stats: {
@@ -431,6 +464,21 @@ function toTenant(row: TenantRow): Tenant {
     publicPhoneNumber: row.public_phone_number,
     address: row.address,
     toneOfVoice: row.tone_of_voice,
+    plan: row.plan,
+    requiredBookingFields: row.required_booking_fields,
+  };
+}
+
+function toVipLead(row: VipLeadRow): VipLead {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    requestedIntegrations: row.requested_integrations,
+    message: row.message,
+    contactEmail: row.contact_email,
+    contactPhone: row.contact_phone,
+    status: row.status,
+    createdAt: row.created_at,
   };
 }
 
@@ -629,6 +677,7 @@ export async function updateTenant(
     publicPhoneNumber: string | null;
     address: string | null;
     toneOfVoice: ToneOfVoice;
+    requiredBookingFields: string[] | null;
   }>,
 ): Promise<Tenant> {
   const update: Database["public"]["Tables"]["tenants"]["Update"] = {
@@ -641,12 +690,28 @@ export async function updateTenant(
     ...(patch.publicPhoneNumber !== undefined ? { public_phone_number: patch.publicPhoneNumber } : {}),
     ...(patch.address !== undefined ? { address: patch.address } : {}),
     ...(patch.toneOfVoice !== undefined ? { tone_of_voice: patch.toneOfVoice } : {}),
+    ...(patch.requiredBookingFields !== undefined ? { required_booking_fields: patch.requiredBookingFields } : {}),
   };
 
   const { data, error } = await getSupabaseClient().from("tenants").update(update).eq("id", tenantId).select("*").single();
 
   if (error || !data) {
     throw new Error(`Failed to update tenant ${tenantId}: ${error?.message ?? "unknown error"}`);
+  }
+  return toTenant(data);
+}
+
+/**
+ * Deliberately separate from updateTenant above, which PATCH /api/tenants/:tenantId
+ * (a tenant_admin's own self-service settings save) is built on — plan is
+ * NOT one of updateTenant's reachable fields, specifically so a tenant can
+ * never grant itself VIP by crafting a request. Only requireSuperAdmin's
+ * route (superAdmin.ts) calls this.
+ */
+export async function updateTenantPlan(tenantId: string, plan: TenantPlan): Promise<Tenant> {
+  const { data, error } = await getSupabaseClient().from("tenants").update({ plan }).eq("id", tenantId).select("*").single();
+  if (error || !data) {
+    throw new Error(`Failed to update plan for tenant ${tenantId}: ${error?.message ?? "unknown error"}`);
   }
   return toTenant(data);
 }
@@ -1700,6 +1765,47 @@ export async function deleteFaq(tenantId: string, faqId: string): Promise<void> 
   if (error) {
     throw new Error(`Failed to delete FAQ ${faqId}: ${error.message}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// vip_leads (022_onboarding_plans_and_leads.sql) — "Request VIP Integration"
+// lead capture. No update/delete accessor here on purpose: a lead is
+// immutable from the application side (see the migration's own RLS
+// comment) — a human works it manually outside this app.
+// ---------------------------------------------------------------------------
+
+export async function insertVipLead(input: {
+  tenantId: string;
+  requestedIntegrations: string[];
+  message?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+}): Promise<VipLead> {
+  const { data, error } = await getSupabaseClient()
+    .from("vip_leads")
+    .insert({
+      tenant_id: input.tenantId,
+      requested_integrations: input.requestedIntegrations,
+      message: input.message ?? null,
+      contact_email: input.contactEmail ?? null,
+      contact_phone: input.contactPhone ?? null,
+    })
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create VIP lead: ${error?.message ?? "unknown error"}`);
+  }
+  return toVipLead(data);
+}
+
+/** Every VIP lead on the platform, newest first — backs the super-admin view (superAdmin.ts). Service-role, bypasses RLS by design, same as listAllTenants. */
+export async function listAllVipLeads(): Promise<VipLead[]> {
+  const { data, error } = await getSupabaseClient().from("vip_leads").select("*").order("created_at", { ascending: false });
+  if (error) {
+    throw new Error(`Failed to list VIP leads: ${error.message}`);
+  }
+  return (data ?? []).map(toVipLead);
 }
 
 // ---------------------------------------------------------------------------

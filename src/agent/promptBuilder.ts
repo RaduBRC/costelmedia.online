@@ -3,6 +3,7 @@
  * conversational rules plus whatever we already know about this client's
  * communication preferences.
  */
+import { formatNicheFallbackKnowledge } from "./nicheKnowledgeBase.js";
 import type { BookingChannel, BusinessType, ClientProfile, Faq, Service, Tenant, ToneAssessment, ToneOfVoice } from "../types/index.js";
 
 /**
@@ -74,14 +75,22 @@ const REQUIRED_BOOKING_INFO: Record<BusinessType, string[]> = {
 };
 
 /**
- * Renders REQUIRED_BOOKING_INFO[businessType] plus the two universal
- * fields (date/time, name + phone) as a hard collection checklist, with
- * an explicit "nothing more than this" boundary — directly enforces "only
- * collect what this niche's booking actually needs" rather than leaving
- * the model to infer it from BUSINESS_TYPE_RULES' looser tone guidance.
+ * Renders the fields to collect before create_appointment as a hard
+ * checklist, with an explicit "nothing more than this" boundary — directly
+ * enforces "only collect what this niche's booking actually needs" rather
+ * than leaving the model to infer it from BUSINESS_TYPE_RULES' looser tone
+ * guidance.
+ *
+ * `tenantOverride`, if set (tenants.required_booking_fields — populated by
+ * the auto-configurator, src/agent/autoConfigurator.ts, from a free-text
+ * description of THIS specific business), replaces REQUIRED_BOOKING_INFO's
+ * static per-business-type list entirely rather than merging with it —
+ * a tenant that ran auto-configure gets fields tailored to what they
+ * actually described, not the generic vertical default blended with it.
  */
-function formatRequiredBookingInfo(businessType: BusinessType): string {
-  const fields = [...REQUIRED_BOOKING_INFO[businessType], "Preferred date and time", "The client's name and a phone number"];
+function formatRequiredBookingInfo(businessType: BusinessType, tenantOverride: string[] | null): string {
+  const nicheFields = tenantOverride && tenantOverride.length > 0 ? tenantOverride : REQUIRED_BOOKING_INFO[businessType];
+  const fields = [...nicheFields, "Preferred date and time", "The client's name and a phone number"];
   return (
     "Before calling create_appointment, collect exactly this information for this business — no more, no " +
     `fewer:\n${fields.map((field) => `- ${field}`).join("\n")}\n` +
@@ -351,7 +360,7 @@ export function buildSystemPrompt(
       "bring in medical disclaimers, legal disclaimers, restaurant-style phrasing, or any other vertical's " +
       "conventions unless this business actually is that vertical.",
     BUSINESS_TYPE_RULES[tenant.businessType],
-    formatRequiredBookingInfo(tenant.businessType),
+    formatRequiredBookingInfo(tenant.businessType, tenant.requiredBookingFields),
     describeToneOfVoice(tenant.toneOfVoice),
     // Without this, the model has no grounding for what "today"/"tomorrow"/
     // an explicit-but-yearless date actually resolves to, and silently
@@ -381,6 +390,13 @@ export function buildSystemPrompt(
   if (faqBlock) {
     lines.push(faqBlock);
   }
+
+  // Second line of defense, always present regardless of whether this
+  // tenant has configured any FAQs of their own — see
+  // nicheKnowledgeBase.ts's own header for why this never overrides a
+  // real tenant FAQ and is never presented as this specific business's
+  // confirmed policy.
+  lines.push(formatNicheFallbackKnowledge(tenant.businessType));
 
   if (channel === "ai_voice") {
     lines.push(VOICE_MANNERS_BLOCK);

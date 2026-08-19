@@ -60,7 +60,13 @@ export default function RegisterPage(): JSX.Element {
     registerTenant({ businessName: businessName.trim(), businessType, adminEmail: email.trim(), adminPassword: password })
       .then(() => login(email.trim(), password))
       .then(() => {
-        void navigate("/admin/dashboard", { replace: true });
+        // /onboarding, not straight to /admin/dashboard — the tenant
+        // already exists (created above), so OnboardingPage's Step 1
+        // (business info) is skipped automatically; this lands the new
+        // admin on Step 2, the auto-configure wizard, same as a Google
+        // sign-up gets. See OnboardingPage.tsx's own header for the full
+        // routing picture across both signup paths.
+        void navigate("/onboarding", { replace: true });
       })
       .catch((submitError: unknown) => {
         setError(submitError instanceof Error ? submitError.message : "Registration failed.");

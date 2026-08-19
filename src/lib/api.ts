@@ -18,7 +18,9 @@ import type {
   Slot,
   Tenant,
   TenantDashboardMetrics,
+  TenantPlan,
   ToneOfVoice,
+  VipLead,
   WorkingHours,
 } from "../types/index.js";
 
@@ -157,6 +159,59 @@ export function updateTenant(tenantId: string, patch: TenantSettingsPatch): Prom
   return apiFetch<Tenant>(`/tenants/${encodeURIComponent(tenantId)}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+export interface AutoConfigureResult {
+  greetingMessage: string;
+  createdServices: Service[];
+  createdFaqs: Faq[];
+  requiredBookingFields: string[];
+}
+
+/**
+ * POST /api/tenants/:tenantId/auto-configure (src/api/routes/autoConfigure.ts)
+ * — the "Auto-Generate Agent Configuration" step in OnboardingPage.tsx /
+ * SettingsPage.tsx. A single Groq call server-side, so this can take a
+ * few seconds — callers show a loading state, not a spinner-less button.
+ */
+export function autoConfigureTenant(tenantId: string, description: string): Promise<AutoConfigureResult> {
+  return apiFetch<AutoConfigureResult>(`/tenants/${encodeURIComponent(tenantId)}/auto-configure`, {
+    method: "POST",
+    body: JSON.stringify({ description }),
+  });
+}
+
+export interface PhoneConfig {
+  twilioPhoneNumber: string | null;
+  whatsappEnabled: boolean;
+}
+
+/** GET /api/tenants/:tenantId/phone — backs the Phone Setup tab. */
+export function getPhoneConfig(tenantId: string): Promise<PhoneConfig> {
+  return apiFetch<PhoneConfig>(`/tenants/${encodeURIComponent(tenantId)}/phone`);
+}
+
+export interface VipLeadInput {
+  requestedIntegrations: string[];
+  message?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+}
+
+/** POST /api/tenants/:tenantId/vip-leads — "Request VIP Integration". */
+export function submitVipLead(tenantId: string, input: VipLeadInput): Promise<VipLead> {
+  return apiFetch<VipLead>(`/tenants/${encodeURIComponent(tenantId)}/vip-leads`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** PATCH /api/super-admin/tenants/:tenantId/plan — the only way a tenant moves to VIP; see superAdmin.ts. */
+export function updateSuperAdminTenantPlan(tenantId: string, plan: TenantPlan): Promise<Tenant> {
+  return apiFetch<Tenant>(`/super-admin/tenants/${encodeURIComponent(tenantId)}/plan`, {
+    method: "PATCH",
+    body: JSON.stringify({ plan }),
   });
 }
 

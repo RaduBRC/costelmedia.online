@@ -8,14 +8,33 @@
  * old/new fields across separate requests.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Calendar, Loader2, Play, Save, Unlink } from "lucide-react";
+import { Calendar, Loader2, Lock, Play, Save, Unlink } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import IntegrationsSection from "../components/IntegrationsSection.js";
+import PhoneSetupSection from "../components/PhoneSetupSection.js";
 import { disconnectGoogleCalendar, getGoogleCalendarConsentUrl, getGoogleCalendarStatus, listVoices, updateTenant } from "../lib/api.js";
 import type { ElevenLabsVoice, GoogleCalendarConnectionStatus } from "../lib/api.js";
 import { useToast } from "../components/Toast.js";
 import { useAuth } from "../context/AuthContext.js";
 import { useDashboardData } from "../hooks/useDashboardData.js";
 import type { BusinessType, ToneOfVoice, Weekday, WorkingHours } from "../types/index.js";
+
+type SettingsTab = "general" | "phone" | "integrations";
+
+const SETTINGS_TABS: { value: SettingsTab; label: string }[] = [
+  { value: "general", label: "General" },
+  { value: "phone", label: "Phone Setup" },
+  { value: "integrations", label: "Integrations" },
+];
+
+/**
+ * Starter/DIY plan hard limit, mirrored from tenantSettings.ts's own
+ * STARTER_ALLOWED_VOICE_IDS — this copy is display-only (which options
+ * the dropdown offers a Starter tenant); the PATCH route enforces the
+ * real limit server-side regardless of what the frontend shows, so these
+ * two lists drifting would be a UX inconsistency, not a security gap.
+ */
+const STARTER_ALLOWED_VOICE_IDS: readonly string[] = ["21m00Tcm4TlvDq8ikWAM", "pNInz6obpgDQGcFmaJgB", "AZnzlk1XvdvUeBnXmlld", "EXAVITQu4vr4xnSDxMaL"];
 
 const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
   { value: "clinic", label: "Medical clinic" },
@@ -162,6 +181,15 @@ export default function SettingsPage(): JSX.Element {
   const data = useDashboardData(tenantId ?? "");
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const requestedTab = searchParams.get("tab");
+  const activeTab: SettingsTab = SETTINGS_TABS.some((tab) => tab.value === requestedTab) ? (requestedTab as SettingsTab) : "general";
+  const goToTab = (tab: SettingsTab): void => {
+    setSearchParams((params) => {
+      params.set("tab", tab);
+      return params;
+    });
+  };
+
   // Landed here from /api/integrations/google/callback's redirect (see
   // googleIntegration.ts) — surface the result once, then strip the query
   // params so a page refresh doesn't re-show the same toast.
@@ -271,8 +299,37 @@ export default function SettingsPage(): JSX.Element {
     );
   }
 
+  const isStarter = data.tenant.plan === "starter";
+  // Starter tenants only ever see the curated standard voices (plus
+  // whichever voice they already have set, even if it fell outside that
+  // list some other way — never hide their own current selection from
+  // the dropdown, just don't offer switching TO a non-standard one).
+  const visibleVoices = isStarter ? voices.filter((voice) => STARTER_ALLOWED_VOICE_IDS.includes(voice.voiceId) || voice.voiceId === elevenlabsVoiceId) : voices;
+
   return (
     <div className="max-w-2xl space-y-6">
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+        {SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            onClick={() => goToTab(tab.value)}
+            className={`min-h-11 border-b-2 px-3 text-sm font-medium transition ${
+              activeTab === tab.value
+                ? "border-violet-600 text-violet-700 dark:text-violet-400"
+                : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "phone" && <PhoneSetupSection tenantId={tenantId} />}
+      {activeTab === "integrations" && <IntegrationsSection tenantId={tenantId} plan={data.tenant.plan} />}
+
+      {activeTab === "general" && (
+        <>
       <GoogleCalendarCard tenantId={tenantId} />
       <form onSubmit={handleSubmit} className="space-y-6">
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -390,17 +447,39 @@ export default function SettingsPage(): JSX.Element {
 
         <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
           Additional instructions (optional)
-          <textarea
-            value={systemPromptOverride}
-            onChange={(event) => setSystemPromptOverride(event.target.value)}
-            rows={3}
-            className={inputClass}
-          />
+          {isStarter && systemPromptOverride.trim().length === 0 ? (
+            <div className="mt-1 flex items-start gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+              <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Custom AI instructions are a VIP feature — Starter plan tenants use the default prompt template for their industry.{" "}
+                <button type="button" onClick={() => goToTab("integrations")} className="font-medium text-violet-600 hover:underline dark:text-violet-400">
+                  Request VIP Integration
+                </button>
+              </span>
+            </div>
+          ) : (
+            <textarea
+              value={systemPromptOverride}
+              onChange={(event) => setSystemPromptOverride(event.target.value)}
+              readOnly={isStarter}
+              rows={3}
+              className={`${inputClass} ${isStarter ? "cursor-not-allowed opacity-60" : ""}`}
+            />
+          )}
           <span className="mt-1 block text-[11px] text-slate-400">Appended to the AI's standard rules — doesn't replace them.</span>
         </label>
 
         <div>
           <span className="block text-xs font-medium text-slate-600 dark:text-slate-300">Voice</span>
+          {isStarter && (
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
+              <Lock className="h-3 w-3 shrink-0" />
+              Starter plan: standard voices only.{" "}
+              <button type="button" onClick={() => goToTab("integrations")} className="font-medium text-violet-600 hover:underline dark:text-violet-400">
+                Unlock the full library
+              </button>
+            </p>
+          )}
           {voicesUnavailable ? (
             <p className="mt-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
               Voice list unavailable — ElevenLabs isn't configured on this server. The current voice ID is preserved below.
@@ -413,7 +492,7 @@ export default function SettingsPage(): JSX.Element {
                 className={`${inputClass} mt-0 flex-1`}
               >
                 <option value="">Platform default</option>
-                {voices.map((voice) => (
+                {visibleVoices.map((voice) => (
                   <option key={voice.voiceId} value={voice.voiceId}>
                     {voice.name}
                   </option>
@@ -437,6 +516,8 @@ export default function SettingsPage(): JSX.Element {
         Save changes
       </button>
       </form>
+        </>
+      )}
     </div>
   );
 }

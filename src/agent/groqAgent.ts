@@ -67,7 +67,7 @@ interface GroqToolCall {
   function: { name: string; arguments: string };
 }
 
-interface GroqMessage {
+export interface GroqMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
   tool_calls?: GroqToolCall[];
@@ -96,8 +96,15 @@ interface CallGroqOptions {
   jsonMode?: boolean;
 }
 
-/** Calls Groq with bounded retries on rate limiting / transient server errors. */
-async function callGroq(messages: GroqMessage[], options: CallGroqOptions = {}): Promise<GroqMessage> {
+/**
+ * Calls Groq with bounded retries on rate limiting / transient server
+ * errors. Exported (beyond this file's own tone-assessment/tool-calling
+ * loop) so other Groq-backed features — currently just
+ * src/agent/autoConfigurator.ts's JSON-mode business-description parser —
+ * reuse the exact same retry/timeout/error-handling behavior instead of
+ * re-implementing a second, subtly different Groq client.
+ */
+export async function callGroq(messages: GroqMessage[], options: CallGroqOptions = {}): Promise<GroqMessage> {
   const apiKey = process.env["GROQ_API_KEY"];
   if (!apiKey) {
     throw new GroqUnavailableError("Missing GROQ_API_KEY environment variable.");

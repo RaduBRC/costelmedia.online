@@ -38,6 +38,7 @@ import type { PushPlatform } from "../db/supabase.js";
 import { healthRouter } from "../api/health.js";
 import { requireTenantAuth } from "../api/middleware/auth.js";
 import { chatRateLimiter, JSON_BODY_LIMIT, securityHeaders, signupRateLimiter, threatShieldRateLimiter } from "../api/middleware/security.js";
+import { autoConfigureRouter } from "../api/routes/autoConfigure.js";
 import { faqsRouter } from "../api/routes/faqs.js";
 import { googleIntegrationTenantRouter, googleOAuthCallbackRouter } from "../api/routes/googleIntegration.js";
 import { servicesRouter } from "../api/routes/services.js";
@@ -166,6 +167,7 @@ export function createApp(): express.Express {
   app.use("/api/tenants/:tenantId/services", servicesRouter);
   app.use("/api/tenants/:tenantId/faqs", faqsRouter);
   app.use("/api/tenants/:tenantId/integrations/google", googleIntegrationTenantRouter);
+  app.use("/api/tenants/:tenantId/auto-configure", autoConfigureRouter);
   app.use("/api/tenants/:tenantId", tenantSettingsRouter);
   app.use("/api/super-admin", superAdminRouter);
 

@@ -84,6 +84,23 @@ export const threatShieldRateLimiter: RequestHandler = rateLimit({
 });
 
 /**
+ * Auto-configurator (src/api/routes/autoConfigure.ts): authenticated and
+ * admin-gated already, but still worth its own limiter — one call here
+ * triggers a real Groq JSON-mode completion plus several DB inserts
+ * (services, FAQs), and the feature is meant to be used a handful of
+ * times per tenant (initial onboarding, an occasional "regenerate"), not
+ * repeatedly — a compromised session shouldn't be able to run up a real
+ * Groq bill or spam a tenant's services/FAQ tables in a loop.
+ */
+export const autoConfigureRateLimiter: RequestHandler = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many auto-configure requests. Please try again in a few minutes." },
+});
+
+/**
  * Tenant self-registration (src/api/tenantProvisioning.ts): unauthenticated
  * by nature (you're creating the account), which makes it the most
  * abuse-prone route in the app — each request creates a real Supabase Auth

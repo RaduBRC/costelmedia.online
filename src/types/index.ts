@@ -11,6 +11,9 @@ export type BusinessType = "restaurant" | "clinic" | "callcenter" | "auto_shop" 
 /** Fixed tenant-level brand-voice persona — distinct from ClientProfile.formalityScore (per-client, learned) and ToneAssessment (per-message, live-read). See promptBuilder.ts's describeToneOfVoice. */
 export type ToneOfVoice = "formal" | "friendly";
 
+/** Starter (self-serve, hard-capped defaults) vs VIP (manually onboarded, custom integrations unlocked) — see 022_onboarding_plans_and_leads.sql and src/api/routes/superAdmin.ts. */
+export type TenantPlan = "starter" | "vip";
+
 export type AppointmentStatus = "confirmed" | "cancelled" | "rescheduled";
 
 /** Which surface actually created the appointment — what makes the "AI agent efficiency" analytics metric a real measurement. */
@@ -49,6 +52,22 @@ export interface Tenant {
   address: string | null;
   /** Fixed brand-voice persona injected into every system prompt (019_tenant_tone_and_faqs.sql). */
   toneOfVoice: ToneOfVoice;
+  /** Starter or VIP tier — gates systemPromptOverride/voice selection/multi-calendar (see tenantSettings.ts's PATCH handler). */
+  plan: TenantPlan;
+  /** Tenant-specific override of promptBuilder.ts's static per-business-type required-booking-fields list — null means "use the static table". Set by the auto-configurator (src/agent/autoConfigurator.ts) or left null for a manually-onboarded tenant. */
+  requiredBookingFields: string[] | null;
+}
+
+/** A "Request VIP Integration" lead (022_onboarding_plans_and_leads.sql) — manually worked by a human, not a self-serve upgrade. */
+export interface VipLead {
+  id: string;
+  tenantId: string;
+  requestedIntegrations: string[];
+  message: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  status: "new" | "contacted" | "won" | "lost";
+  createdAt: string;
 }
 
 export interface Appointment {

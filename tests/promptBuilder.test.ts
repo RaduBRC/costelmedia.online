@@ -41,6 +41,8 @@ const BASE_TENANT: Tenant = {
   publicPhoneNumber: null,
   address: null,
   toneOfVoice: "friendly",
+  plan: "starter",
+  requiredBookingFields: null,
 };
 
 function tenantFor(businessType: BusinessType, name: string, overrides: Partial<Tenant> = {}): Tenant {
