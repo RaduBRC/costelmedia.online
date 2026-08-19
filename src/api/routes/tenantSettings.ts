@@ -9,7 +9,8 @@
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import { getTenantById, getTenantTwilioRouting, insertVipLead, updateTenant } from "../../db/supabase.js";
-import { ElevenLabsNotConfiguredError, ElevenLabsRequestError, ElevenLabsTimeoutError, listElevenLabsVoices } from "../../telephony/elevenLabsTts.js";
+import { DEFAULT_VOICE_ID, ElevenLabsNotConfiguredError, ElevenLabsRequestError, ElevenLabsTimeoutError, listElevenLabsVoices } from "../../telephony/elevenLabsTts.js";
+import type { ElevenLabsVoice } from "../../telephony/elevenLabsTts.js";
 import type { BusinessType, ToneOfVoice, Weekday, WorkingHours } from "../../types/index.js";
 import { requireTenantAdmin, requireTenantAuth } from "../middleware/auth.js";
 import { threatShieldRateLimiter } from "../middleware/security.js";
@@ -31,8 +32,13 @@ export const tenantSettingsRouter: express.Router = express.Router({ mergeParams
  * Bella — had drifted: ElevenLabs' default premade roster changed and
  * those names/IDs no longer match what the API actually returns; George/
  * Adam/Laura/Ana Maria below are current as of this update).
+ *
+ * DEFAULT_VOICE_ID leads the list — it's the platform's primary default
+ * (elevenLabsTts.ts), always explicitly selectable regardless of plan,
+ * not just an implicit fallback for a null elevenlabsVoiceId.
  */
 const STARTER_ALLOWED_VOICE_IDS: readonly string[] = [
+  DEFAULT_VOICE_ID, // Voce Principală CostelMedia — platform primary default
   "JBFqnCBsd6RMkjVDRZzb", // George — warm, works well for ro-RO via multilingual_v2
   "pNInz6obpgDQGcFmaJgB", // Adam
   "FGY2WhTYpPnrIDTdsKH5", // Laura
@@ -238,6 +244,22 @@ tenantSettingsRouter.patch(
 );
 
 /**
+ * Pinned as literal Option #1 in the Settings voice picker — see
+ * elevenLabsTts.ts's own comment on DEFAULT_VOICE_ID for why this can't
+ * just come from listElevenLabsVoices() below: it's an ElevenLabs public-
+ * library voice, not one added to this account's "My Voices", so
+ * GET /v1/voices never returns it even though synthesizing with it works
+ * fine. Placed first unconditionally, ahead of whatever order ElevenLabs
+ * itself returns the rest in.
+ */
+const PRIMARY_DEFAULT_VOICE: ElevenLabsVoice = {
+  voiceId: DEFAULT_VOICE_ID,
+  name: "Voce Principală CostelMedia",
+  previewUrl: null,
+  category: "platform-default",
+};
+
+/**
  * Any authenticated staff member (not admin-only — a non-admin staffer
  * previewing voices while an admin fills out the rest of Settings is
  * harmless; the write itself is still admin-gated above).
@@ -245,7 +267,11 @@ tenantSettingsRouter.patch(
 tenantSettingsRouter.get("/voices", requireTenantAuth, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const voices = await listElevenLabsVoices();
-    res.json(voices);
+    // De-duped in case ElevenLabs' own listing ever does start returning
+    // this ID (e.g. if it gets added to "My Voices" later) — PRIMARY_DEFAULT_VOICE
+    // still wins that slot with its CostelMedia label, not whatever name
+    // the live API would give it.
+    res.json([PRIMARY_DEFAULT_VOICE, ...voices.filter((voice) => voice.voiceId !== DEFAULT_VOICE_ID)]);
   } catch (error) {
     if (error instanceof ElevenLabsNotConfiguredError) {
       res.status(503).json({ error: "ElevenLabs is not configured on this server." });

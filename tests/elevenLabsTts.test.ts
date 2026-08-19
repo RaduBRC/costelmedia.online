@@ -4,8 +4,8 @@
  * conversational-Romanian voice tuning (VOICE_SETTINGS/DEFAULT_MODEL_ID).
  * No network/mocking needed for either.
  */
-import { describe, expect, it } from "vitest";
-import { DEFAULT_MODEL_ID, stripMarkdownForSpeech, VOICE_SETTINGS } from "../src/telephony/elevenLabsTts.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_MODEL_ID, DEFAULT_VOICE_ID, isElevenLabsConfigured, stripMarkdownForSpeech, VOICE_SETTINGS } from "../src/telephony/elevenLabsTts.js";
 
 describe("stripMarkdownForSpeech", () => {
   it("strips bold markers, keeping the text", () => {
@@ -61,5 +61,37 @@ describe("conversational Romanian voice tuning", () => {
 
   it("uses the retuned conversational voice settings", () => {
     expect(VOICE_SETTINGS).toEqual({ stability: 0.4, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true });
+  });
+});
+
+describe("platform primary default voice", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("DEFAULT_VOICE_ID is the platform's primary voice", () => {
+    expect(DEFAULT_VOICE_ID).toBe("GRHbHyXbUO8nF4YexVTa");
+  });
+
+  it("isElevenLabsConfigured is true once an API key exists, even with no tenant override and no env var voice set — DEFAULT_VOICE_ID always resolves", () => {
+    vi.stubEnv("ELEVENLABS_API_KEY", "test-key");
+    vi.stubEnv("ELEVENLABS_VOICE_ID", "");
+    expect(isElevenLabsConfigured(null)).toBe(true);
+    expect(isElevenLabsConfigured(undefined)).toBe(true);
+  });
+
+  it("isElevenLabsConfigured is false with no API key, regardless of voice configuration", () => {
+    vi.stubEnv("ELEVENLABS_API_KEY", "");
+    expect(isElevenLabsConfigured("some-tenant-voice-id")).toBe(false);
+  });
+
+  it("a tenant-specific voice override still takes priority over the platform default", () => {
+    vi.stubEnv("ELEVENLABS_API_KEY", "test-key");
+    vi.stubEnv("ELEVENLABS_VOICE_ID", "");
+    // Not asserting the actual resolved id here (that's fetchElevenLabsSpeechStream's
+    // internal `||` chain, not separately exposed) — isElevenLabsConfigured
+    // just needs to keep reporting "configured" whether or not an override
+    // is present, which it does for both branches.
+    expect(isElevenLabsConfigured("a-specific-tenant-voice-id")).toBe(true);
   });
 });

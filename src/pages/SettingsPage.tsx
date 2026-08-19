@@ -34,7 +34,13 @@ const SETTINGS_TABS: { value: SettingsTab; label: string }[] = [
  * real limit server-side regardless of what the frontend shows, so these
  * two lists drifting would be a UX inconsistency, not a security gap.
  */
-const STARTER_ALLOWED_VOICE_IDS: readonly string[] = ["JBFqnCBsd6RMkjVDRZzb", "pNInz6obpgDQGcFmaJgB", "FGY2WhTYpPnrIDTdsKH5", "urzoE6aZYmSRdFQ6215h"];
+const STARTER_ALLOWED_VOICE_IDS: readonly string[] = [
+  "GRHbHyXbUO8nF4YexVTa", // Voce Principală CostelMedia — platform primary default, pinned as option #1 by the backend
+  "JBFqnCBsd6RMkjVDRZzb", // George
+  "pNInz6obpgDQGcFmaJgB", // Adam
+  "FGY2WhTYpPnrIDTdsKH5", // Laura
+  "urzoE6aZYmSRdFQ6215h", // Ana Maria
+];
 
 const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
   { value: "clinic", label: "Medical clinic" },
@@ -491,12 +497,17 @@ export default function SettingsPage(): JSX.Element {
                 onChange={(event) => setElevenlabsVoiceId(event.target.value)}
                 className={`${inputClass} mt-0 flex-1`}
               >
-                <option value="">Platform default</option>
+                {/* visibleVoices[0] is always the pinned "Voce Principală
+                    CostelMedia" (see tenantSettings.ts's GET /voices) —
+                    rendered first, ahead of "Platform default", so it's
+                    literally Option #1 in the dropdown, not just first
+                    among the live-fetched voices. */}
                 {visibleVoices.map((voice) => (
                   <option key={voice.voiceId} value={voice.voiceId}>
                     {voice.name}
                   </option>
                 ))}
+                <option value="">Platform default (env-configured)</option>
               </select>
               {(() => {
                 const selected = voices.find((voice) => voice.voiceId === elevenlabsVoiceId);

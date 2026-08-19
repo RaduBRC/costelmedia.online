@@ -50,6 +50,27 @@
 
 const REQUEST_TIMEOUT_MS = 5000;
 
+/**
+ * The platform's primary default voice — used whenever neither a tenant's
+ * own `elevenlabsVoiceId` nor the ELEVENLABS_VOICE_ID env var resolves to
+ * anything. Guarantees every new sign-up and every tenant that hasn't
+ * picked a voice yet gets a real, known-good voice out of the box rather
+ * than depending on an operator having set the env var correctly (the
+ * exact class of drift that broke production TTS once already this
+ * project — see the ELEVENLABS_API_KEY incident this session's git log).
+ *
+ * Verified live before being hardcoded here: this ID doesn't appear in
+ * this account's own GET /v1/voices listing (it's an ElevenLabs public-
+ * library voice, not one added to "My Voices"), but direct synthesis
+ * against it (POST /v1/text-to-speech/{id}) succeeds and returns real
+ * audio — that's the operation this app actually performs, so that's
+ * what was tested, not the library-listing endpoint. Also pinned as an
+ * explicit, always-selectable "Voce Principală CostelMedia" option in the
+ * dashboard's voice picker (tenantSettings.ts's GET /voices) for exactly
+ * that reason — it would otherwise never appear there on its own.
+ */
+export const DEFAULT_VOICE_ID = "GRHbHyXbUO8nF4YexVTa";
+
 export const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
 
 // Retuned for conversational Romanian after live listening tests flagged
@@ -199,7 +220,11 @@ const MODEL_FALLBACK_RETRYABLE_STATUSES = new Set([400, 422]);
  */
 export function isElevenLabsConfigured(voiceIdOverride?: string | null): boolean {
   const apiKey = process.env["ELEVENLABS_API_KEY"];
-  const voiceId = voiceIdOverride || process.env["ELEVENLABS_VOICE_ID"];
+  // DEFAULT_VOICE_ID means a voice is always resolvable once the API key
+  // exists — this stays a three-way fallback (matching fetchElevenLabsSpeechStream's
+  // own resolution exactly) rather than collapsing to a bare apiKey check,
+  // so the two never silently drift apart from each other.
+  const voiceId = voiceIdOverride || process.env["ELEVENLABS_VOICE_ID"] || DEFAULT_VOICE_ID;
   return !!(apiKey && voiceId);
 }
 
@@ -215,7 +240,7 @@ export function isElevenLabsConfigured(voiceIdOverride?: string | null): boolean
  */
 export function logElevenLabsConfigSanityCheck(): void {
   const apiKey = process.env["ELEVENLABS_API_KEY"];
-  const voiceId = process.env["ELEVENLABS_VOICE_ID"];
+  const envVoiceId = process.env["ELEVENLABS_VOICE_ID"];
 
   const keySummary = apiKey ? `Yes (length: ${apiKey.length})` : "No — TTS will fail with MISSING_KEYS until this is set.";
   // First 6 chars only — enough to eyeball "is this the key I think it
@@ -223,10 +248,16 @@ export function logElevenLabsConfigSanityCheck(): void {
   // own; voice IDs aren't secret (they're visible in ElevenLabs URLs/API
   // responses) so this one is safe to print in full instead.
   const keyPreview = apiKey ? `${apiKey.slice(0, 6)}…` : "n/a";
-  const voiceSummary = voiceId ?? "No — falls back to nothing; tenant-specific elevenlabsVoiceId is still checked per-request.";
+  // What a tenant with no elevenlabsVoiceId of their own will actually
+  // get — the env var if an operator set one, otherwise DEFAULT_VOICE_ID.
+  // Reports which of the two it is, not just "is ELEVENLABS_VOICE_ID set",
+  // since a stale/wrong env var here silently shadows the platform
+  // default and is worth surfacing at boot rather than only discovering
+  // it from a live TTS failure.
+  const voiceSummary = envVoiceId ? `${envVoiceId} (from ELEVENLABS_VOICE_ID env var)` : `${DEFAULT_VOICE_ID} (built-in platform default)`;
 
   console.log(`[ElevenLabs Config] API Key Present: ${keySummary}${apiKey ? ` (${keyPreview})` : ""}`);
-  console.log(`[ElevenLabs Config] Voice ID (env default): ${voiceSummary}`);
+  console.log(`[ElevenLabs Config] Effective default voice: ${voiceSummary}`);
 }
 
 /**
@@ -236,10 +267,10 @@ export function logElevenLabsConfigSanityCheck(): void {
  * piping straight through).
  *
  * `voiceIdOverride` lets a caller request a specific tenant's own voice
- * (tenants.elevenlabs_voice_id) instead of the platform-wide
- * ELEVENLABS_VOICE_ID default. A blank override (empty string, or a
- * tenant row with the column unset) falls back to the env var default,
- * same `||`-not-`??` reasoning as resolveModelId above.
+ * (tenants.elevenlabs_voice_id) instead of the platform-wide default. A
+ * blank override (empty string, or a tenant row with the column unset)
+ * falls back to ELEVENLABS_VOICE_ID if an operator set one, then to
+ * DEFAULT_VOICE_ID — same `||`-not-`??` reasoning as resolveModelId above.
  *
  * `externalSignal`, if given, is combined with the internal timeout — an
  * abort via `externalSignal` (e.g. streamTextToSpeech's barge-in) is
@@ -317,11 +348,17 @@ export async function fetchElevenLabsSpeechStream(
 ): Promise<ResponseWithBody> {
   const text = stripMarkdownForSpeech(rawText);
   const apiKey = process.env["ELEVENLABS_API_KEY"];
-  const voiceId = voiceIdOverride || process.env["ELEVENLABS_VOICE_ID"];
+  // Three-way fallback: this tenant's own voice, then an operator-set env
+  // override, then the platform's hardcoded primary default
+  // (DEFAULT_VOICE_ID) — the same order isElevenLabsConfigured checks, so
+  // "would this succeed" and "what actually gets requested" can't drift
+  // apart. In practice `voiceId` is now never empty once apiKey exists —
+  // ElevenLabsNotConfiguredError from a missing voice is effectively
+  // unreachable, but the check stays as defense-in-depth in case a future
+  // change ever makes DEFAULT_VOICE_ID conditionally empty.
+  const voiceId = voiceIdOverride || process.env["ELEVENLABS_VOICE_ID"] || DEFAULT_VOICE_ID;
   if (!apiKey || !voiceId) {
-    throw new ElevenLabsNotConfiguredError(
-      "Missing ELEVENLABS_API_KEY, or no ELEVENLABS_VOICE_ID configured (neither tenant-specific nor the env var default).",
-    );
+    throw new ElevenLabsNotConfiguredError("Missing ELEVENLABS_API_KEY.");
   }
 
   const timeoutController = new AbortController();
