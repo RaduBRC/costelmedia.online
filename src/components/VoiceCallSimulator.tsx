@@ -274,20 +274,37 @@ export default function VoiceCallSimulator({ tenantId, tenant }: { tenantId: str
    * play() call itself fail on some browsers ("no supported source was
    * found"), which is exactly backwards for a function whose whole job
    * is making sure playback works.
+   *
+   * Critically, this unlocks audioRef.current itself — the SAME element
+   * `speak()` below reuses for every reply — rather than a throwaway
+   * Audio() instance. On iOS Safari the gesture-unlock does not reliably
+   * transfer from one HTMLAudioElement to a *different* one played later
+   * (unlike desktop browsers, which unlock per-origin/session regardless
+   * of element identity): a fresh `new Audio()` per turn — as this used
+   * to do — plays the greeting fine (that first speak() call is still
+   * close enough to the gesture) but every reply after it, coming from a
+   * new element after an awaited network round trip, gets rejected with
+   * `NotAllowedError`, which every affected call then silently falls back
+   * to the robotic browser voice for. Reusing one persisted, once-unlocked
+   * element sidesteps that entirely.
    */
   const unlockAudioPlayback = useCallback(() => {
     if (typeof window === "undefined" || typeof Audio === "undefined") return;
     try {
+      const audio = audioRef.current ?? new Audio();
+      audio.setAttribute("playsinline", "true");
+      audioRef.current = audio;
       const url = createSilentAudioUrl();
-      const unlock = new Audio(url);
-      unlock.volume = 0;
-      unlock
+      audio.src = url;
+      audio.volume = 0;
+      audio
         .play()
         .catch(() => {
           /* Best-effort — if this is blocked too, real playback later just falls back to browser TTS instead of erroring. */
         })
         .finally(() => {
           URL.revokeObjectURL(url);
+          audio.volume = 1;
         });
     } catch {
       /* Same — best-effort unlock, never fatal to starting the call. */
@@ -351,13 +368,21 @@ export default function VoiceCallSimulator({ tenantId, tenant }: { tenantId: str
           (blob) =>
             new Promise<void>((resolve, reject) => {
               const url = URL.createObjectURL(blob);
-              const audio = new Audio(url);
+              // Reuses the same <audio> element unlockAudioPlayback()
+              // already played once inside this call's original user
+              // gesture (see that function's own comment) instead of
+              // constructing a fresh Audio() per turn — the latter is what
+              // made every reply after the greeting fail with
+              // NotAllowedError on iOS Safari specifically.
+              const audio = audioRef.current ?? new Audio();
+              audio.setAttribute("playsinline", "true");
               audioRef.current = audio;
+              audio.volume = 1;
+              audio.src = url;
               const cleanup = (): void => {
                 URL.revokeObjectURL(url);
-                if (audioRef.current === audio) {
-                  audioRef.current = null;
-                }
+                audio.onended = null;
+                audio.onerror = null;
               };
               audio.onended = () => {
                 logDebug("ElevenLabs playback finished.");
@@ -478,7 +503,7 @@ export default function VoiceCallSimulator({ tenantId, tenant }: { tenantId: str
       // speech keeps producing *any* recognition events. Status stays
       // "listening" throughout (set once in onstart) — nothing here
       // changes it, satisfying "stay visually listening until the silence
-      // timer actually expires."
+      // timer actually expires.
       resetSilenceTimer();
     };
 
