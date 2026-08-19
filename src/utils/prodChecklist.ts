@@ -22,6 +22,34 @@ export interface ChecklistResult {
 }
 
 // ---------------------------------------------------------------------------
+// TEMPORARY DIAGNOSTIC — decodes the *public* (unsigned) payload segment of
+// SUPABASE_SERVICE_ROLE_KEY to confirm which Supabase role/project it
+// actually carries. Never logs the key itself, only the JWT's own claims
+// (role/ref/iss), which are not secret — the signature is what protects the
+// key, not these fields. Remove once the "Invalid API key" mystery on
+// RPC/write calls is root-caused.
+// ---------------------------------------------------------------------------
+function logSupabaseKeyDiagnostic(): void {
+  const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+  if (!key) {
+    return;
+  }
+  const parts = key.split(".");
+  if (parts.length !== 3) {
+    console.warn(`[DIAG supabase-key] not JWT-shaped (${parts.length} segment(s), length ${key.length}).`);
+    return;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>;
+    console.warn(
+      `[DIAG supabase-key] role=${String(payload["role"])} ref=${String(payload["ref"])} iss=${String(payload["iss"])} exp=${String(payload["exp"])}`,
+    );
+  } catch (error) {
+    console.warn(`[DIAG supabase-key] failed to decode payload: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Secret entropy
 // ---------------------------------------------------------------------------
 
@@ -160,6 +188,8 @@ async function checkDatabaseIndexes(): Promise<ChecklistCheck[]> {
  * the process itself.
  */
 export async function runProductionChecklist(): Promise<ChecklistResult> {
+  logSupabaseKeyDiagnostic();
+
   const checks: ChecklistCheck[] = [
     ...checkRequiredEnvVars(),
     ...checkOptionalFeatureEnvVars(),
