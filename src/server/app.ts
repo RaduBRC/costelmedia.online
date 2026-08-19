@@ -41,6 +41,7 @@ import { chatRateLimiter, JSON_BODY_LIMIT, securityHeaders, signupRateLimiter, t
 import { faqsRouter } from "../api/routes/faqs.js";
 import { googleIntegrationTenantRouter, googleOAuthCallbackRouter } from "../api/routes/googleIntegration.js";
 import { servicesRouter } from "../api/routes/services.js";
+import { superAdminRouter } from "../api/routes/superAdmin.js";
 import { tenantSettingsRouter } from "../api/routes/tenantSettings.js";
 import { ttsRouter } from "../api/routes/tts.js";
 import { widgetRouter } from "../api/routes/widget.js";
@@ -166,6 +167,7 @@ export function createApp(): express.Express {
   app.use("/api/tenants/:tenantId/faqs", faqsRouter);
   app.use("/api/tenants/:tenantId/integrations/google", googleIntegrationTenantRouter);
   app.use("/api/tenants/:tenantId", tenantSettingsRouter);
+  app.use("/api/super-admin", superAdminRouter);
 
   app.get(
     "/api/tenants/:tenantId",

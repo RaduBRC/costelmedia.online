@@ -126,7 +126,8 @@ you.)
 
 ## 6. Provisioning additional tenants
 
-Beyond the seed script, new tenants can self-register via the API:
+Beyond the seed script, new tenants can self-register two ways — through
+the dashboard's `/register` page, or directly against the API:
 
 ```bash
 curl -X POST https://<your-api-host>/api/v1/tenants/register \
@@ -140,13 +141,84 @@ curl -X POST https://<your-api-host>/api/v1/tenants/register \
   }'
 ```
 
+`googleCalendarId` is optional — it defaults to `"primary"` if omitted, so a
+brand-new business owner doesn't need to already know their Google Calendar
+ID before their first login (they can connect Google Calendar properly
+later from `/admin/settings`).
+
 This is a public, unauthenticated, aggressively rate-limited endpoint (5
 requests / 15 minutes / IP — see `signupRateLimiter` in
 `src/api/middleware/security.ts`), since anyone can hit it to create an
 account. It creates the Supabase Auth user and the `tenants` row, which a
 database trigger (`003_security_rls.sql`) automatically links via
 `tenant_members` — no separate step needed. The new admin then signs in
-through the normal dashboard login.
+through the normal dashboard login and lands on `/admin/dashboard`.
+
+**Google sign-up** goes through a second, authenticated path instead:
+`loginWithGoogle()` (Supabase Auth's own OAuth) creates only the
+`auth.users` row, so the dashboard's `/register` "Sign up with Google"
+button redirects to `/onboarding`, which collects the business
+name/type and calls `POST /api/v1/tenants/onboard` (requires a valid
+session, no request body needed beyond the business info) to create the
+tenant for the now-authenticated user. `/onboarding` is idempotent — a
+returning user who already owns a tenant is bounced straight through to
+`/admin/dashboard` with no form shown. This requires the Google provider
+to be enabled under Authentication → Providers in the Supabase dashboard,
+with its own OAuth client (separate from the per-tenant Google Calendar
+connection in `/admin/settings` — see §7's note in `.env.example` about
+`GOOGLE_OAUTH_CLIENT_ID`, which is for Calendar sync, not sign-in).
+
+Either way, every new tenant automatically gets its owner added to
+`tenant_members` with `tenant_role = 'tenant_admin'` — a database trigger
+(`seed_owner_as_tenant_admin`, `003_security_rls.sql`) fires on every
+`tenants` insert and handles this without any application code needing to
+do it explicitly.
+
+## 6a. Roles & Super Admin
+
+Two roles exist, enforced at three layers (Postgres RLS, Express
+middleware, and frontend route guards — the first is the one that
+actually matters; the other two are UX):
+
+- **`tenant_admin`** (per-tenant, via `tenant_members.tenant_role`) — full
+  access to their own tenant's data only. RLS policies across every table
+  scope every query to `current_tenant_id()`, read from the caller's JWT
+  `app_metadata` — Tenant A's admin cannot see Tenant B's appointments,
+  call logs, or settings under any circumstance, including a compromised
+  API key, since the database itself enforces the boundary.
+- **`SUPER_ADMIN`** (platform-wide, via the separate `platform_admins`
+  table — *not* a `tenant_role` value, since a super admin isn't "an
+  admin of tenant X," they bypass tenant scoping entirely) — can read
+  across all tenants. Every RLS policy in the schema already includes an
+  `or public.is_super_admin()` clause. On the app side, `GET
+  /api/super-admin/tenants` (gated by the `requireSuperAdmin` Express
+  middleware) and the `/super-admin` dashboard page are the only things
+  currently built on top of this — a read-only list of every tenant on
+  the platform. A regular `tenant_admin` never even sees the "Platform"
+  nav section (`DashboardLayout.tsx`), and hitting the route directly
+  bounces them back to their own dashboard (`ProtectedSuperAdminRoute.tsx`);
+  the real enforcement is server-side.
+
+**Promoting an account to `SUPER_ADMIN`:**
+
+```bash
+npm run promote:super-admin -- you@example.com
+```
+
+This looks the user up by email in Supabase Auth and inserts a row into
+`platform_admins`, which a trigger (`021_super_admin_claim_sync.sql`)
+syncs into that user's `app_metadata.is_super_admin` immediately. API
+access takes effect right away — `requireSuperAdmin`
+(`src/api/middleware/auth.ts`) verifies every request via
+`supabase.auth.getUser(token)`, which re-fetches the live user record
+rather than trusting only what was baked into the JWT at sign-in, so no
+re-login is required for `GET /api/super-admin/tenants` etc. to start
+working. The one place this lags is the **dashboard UI** — the "Platform"
+nav link and the `/super-admin` route guard (`AuthContext.tsx`) read the
+claim off the locally-cached session, which only updates on that user's
+next sign-in or an explicit `refreshSession()`, so ask them to log out and
+back in before the link appears. The script requires
+`SUPABASE_SERVICE_ROLE_KEY` in `.env`, same as everything else server-side.
 
 ## 7. Embedding the chat widget
 

@@ -21,7 +21,8 @@
     "test": "vitest run",
     "seed": "node --experimental-strip-types scripts/seedData.ts",
     "seed:reset": "npm run seed -- --reset",
-    "test:elevenlabs": "node --experimental-strip-types scripts/test-elevenlabs.ts"
+    "test:elevenlabs": "node --experimental-strip-types scripts/test-elevenlabs.ts",
+    "promote:super-admin": "node --experimental-strip-types scripts/promoteSuperAdmin.ts"
   },
   "keywords": [],
   "author": "",

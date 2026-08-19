@@ -11,7 +11,7 @@ interface LocationState {
 }
 
 export default function Login(): JSX.Element {
-  const { login, sessionExpiredMessage } = useAuth();
+  const { login, loginWithGoogle, sessionExpiredMessage } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -19,6 +19,18 @@ export default function Login(): JSX.Element {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+
+  const handleGoogleSignIn = (): void => {
+    setError(null);
+    setIsGoogleSubmitting(true);
+    loginWithGoogle().catch((submitError: unknown) => {
+      setError(submitError instanceof Error ? submitError.message : "Google sign-in failed.");
+      setIsGoogleSubmitting(false);
+    });
+    // No `.finally` — a successful call navigates the whole browser away
+    // to Google, so there's nothing left here to reset isGoogleSubmitting on.
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -78,6 +90,22 @@ export default function Login(): JSX.Element {
             <span>{error}</span>
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={isGoogleSubmitting}
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-medium text-slate-700 transition active:scale-[0.98] active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:active:bg-slate-800"
+        >
+          {isGoogleSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+          Sign in with Google
+        </button>
+
+        <div className="my-5 flex items-center gap-3">
+          <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+          <span className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">or</span>
+          <div className="h-px flex-1 bg-slate-200 dark:bg-slate-800" />
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -139,6 +167,13 @@ export default function Login(): JSX.Element {
             {isSubmitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
+
+        <p className="mt-6 text-center text-xs text-slate-500 dark:text-slate-400">
+          Don&apos;t have an account?{" "}
+          <Link to="/register" className="font-medium text-violet-600 hover:underline dark:text-violet-400">
+            Sign up
+          </Link>
+        </p>
       </div>
     </div>
   );

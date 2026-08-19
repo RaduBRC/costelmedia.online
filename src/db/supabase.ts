@@ -177,6 +177,11 @@ type ServiceRow = {
   updated_at: string;
 };
 
+type PlatformAdminRow = {
+  user_id: string;
+  created_at: string;
+};
+
 type FaqRow = {
   id: string;
   tenant_id: string;
@@ -352,6 +357,12 @@ export interface Database {
           is_active?: boolean;
         };
         Update: Partial<Omit<FaqRow, "id" | "tenant_id">>;
+        Relationships: [];
+      };
+      platform_admins: {
+        Row: PlatformAdminRow;
+        Insert: Omit<PlatformAdminRow, "created_at"> & { created_at?: string };
+        Update: Partial<PlatformAdminRow>;
         Relationships: [];
       };
     };
@@ -716,6 +727,34 @@ export async function getTenantByApiKeyHash(apiKeyHash: string): Promise<Tenant 
     throw new Error(`Failed to resolve tenant by API key: ${error.message}`);
   }
   return data ? toTenant(data) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Super admin (platform_admins — 003_security_rls.sql / 021_super_admin_claim_sync.sql)
+// ---------------------------------------------------------------------------
+
+/** Backs GET /api/super-admin/tenants — every tenant on the platform, service-role (bypasses RLS by design here, same as everything else in this file). */
+export async function listAllTenants(): Promise<Tenant[]> {
+  const { data, error } = await getSupabaseClient().from("tenants").select("*").order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to list tenants: ${error.message}`);
+  }
+  return data.map(toTenant);
+}
+
+/**
+ * Grants super admin — inserts into platform_admins, which
+ * platform_admins_sync_claim (021_super_admin_claim_sync.sql) picks up
+ * and syncs into the user's `is_super_admin` JWT claim, effective on
+ * their next token refresh. Used by scripts/promoteSuperAdmin.ts.
+ */
+export async function promoteToSuperAdmin(userId: string): Promise<void> {
+  const { error } = await getSupabaseClient().from("platform_admins").insert({ user_id: userId });
+  if (error && error.code !== "23505") {
+    // 23505 = unique_violation — already a super admin, not an error.
+    throw new Error(`Failed to promote user ${userId} to super admin: ${error.message}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

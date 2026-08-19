@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Phone,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sparkles,
   Users,
   Wrench,
@@ -49,6 +50,8 @@ const TOOLS_NAV: NavItem[] = [
   { to: "/admin/tools/widget", label: "Website Widget", icon: Code2 },
 ];
 
+const SUPER_ADMIN_NAV: NavItem[] = [{ to: "/super-admin", label: "All Tenants", icon: ShieldCheck }];
+
 const SIDEBAR_COLLAPSED_KEY = "aibp-sidebar-collapsed";
 
 function NavSection({ items, collapsed, onNavigate }: { items: NavItem[]; collapsed: boolean; onNavigate: () => void }): JSX.Element {
@@ -80,7 +83,7 @@ function NavSection({ items, collapsed, onNavigate }: { items: NavItem[]; collap
 }
 
 export default function DashboardLayout(): JSX.Element {
-  const { user, tenantId, role, logout } = useAuth();
+  const { user, tenantId, role, isSuperAdmin, logout } = useAuth();
   const data = useDashboardData(tenantId ?? "");
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -118,6 +121,16 @@ export default function DashboardLayout(): JSX.Element {
             {!collapsed && <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Testing Tools</p>}
             <NavSection items={TOOLS_NAV} collapsed={collapsed} onNavigate={closeMobileNav} />
           </div>
+          {/* Platform-wide, not tenant-scoped — only rendered at all for
+              an account that actually has the is_super_admin claim; a
+              regular tenant_admin/staff user never sees this link exists.
+              requireSuperAdmin on the backend is the real gate either way. */}
+          {isSuperAdmin && (
+            <div>
+              {!collapsed && <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Platform</p>}
+              <NavSection items={SUPER_ADMIN_NAV} collapsed={collapsed} onNavigate={closeMobileNav} />
+            </div>
+          )}
         </nav>
 
         <button

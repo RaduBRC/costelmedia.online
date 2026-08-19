@@ -92,8 +92,53 @@ async function apiFetch<T>(path: string, init?: RequestInit, isRetry = false): P
   return payload as T;
 }
 
+export interface RegisterTenantInput {
+  businessName: string;
+  businessType: BusinessType;
+  adminEmail: string;
+  adminPassword: string;
+}
+
+export interface RegisterTenantResult {
+  tenantId: string;
+  adminUserId: string;
+  message: string;
+}
+
+/**
+ * POST /api/v1/tenants/register (src/api/tenantProvisioning.ts) — public,
+ * no session exists yet at this point, so apiFetch simply sends no
+ * Authorization header (its own logic already only adds one when a
+ * session is present). Creating the account does NOT sign the caller in
+ * — RegisterPage.tsx calls useAuth().login() right after this resolves.
+ */
+export function registerTenant(input: RegisterTenantInput): Promise<RegisterTenantResult> {
+  return apiFetch<RegisterTenantResult>("/v1/tenants/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export interface OnboardTenantInput {
+  businessName: string;
+  businessType: BusinessType;
+}
+
+/** POST /api/v1/tenants/onboard — for an already-authenticated user (Google sign-in) who owns no tenant yet. See OnboardingPage.tsx. */
+export function onboardTenant(input: OnboardTenantInput): Promise<{ tenantId: string; message: string }> {
+  return apiFetch<{ tenantId: string; message: string }>("/v1/tenants/onboard", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function getTenant(tenantId: string): Promise<Tenant> {
   return apiFetch<Tenant>(`/tenants/${encodeURIComponent(tenantId)}`);
+}
+
+/** GET /api/super-admin/tenants (src/api/routes/superAdmin.ts) — every tenant on the platform; requireSuperAdmin-gated server-side. */
+export function getSuperAdminTenants(): Promise<Tenant[]> {
+  return apiFetch<Tenant[]>("/super-admin/tenants");
 }
 
 export interface TenantSettingsPatch {

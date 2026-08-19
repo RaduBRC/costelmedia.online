@@ -23,11 +23,15 @@ interface AuthContextValue {
   session: Session | null;
   tenantId: string | null;
   role: TenantRole | null;
+  /** From the `is_super_admin` JWT claim (021_super_admin_claim_sync.sql, synced from platform_admins) — platform-wide, not tied to `tenantId`/`role` at all; a super admin may have neither. */
+  isSuperAdmin: boolean;
   /** True only while the initial session check is in flight — distinguishes "not logged in" from "haven't checked yet" so ProtectedRoute doesn't flash the login screen on every reload. */
   isLoading: boolean;
   /** Set when api.ts's 401 interceptor forces a sign-out — Login.tsx surfaces this so the user knows *why* they're back at the login screen. Cleared on the next login attempt. */
   sessionExpiredMessage: string | null;
   login: (email: string, password: string) => Promise<void>;
+  /** Redirects the browser to Google's consent screen via Supabase Auth's own OAuth flow — distinct from src/auth/googleOAuthTokens.ts's per-tenant Calendar connection, this is sign-in/sign-up only and needs the Google provider enabled in the Supabase dashboard before it does anything. */
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   /** Reads the current access token fresh from Supabase (which handles refresh internally) rather than trusting a possibly-stale closure over `session`. */
   getAccessToken: () => Promise<string | null>;
@@ -42,6 +46,14 @@ function extractAppMetadataClaim(session: Session | null, claim: string): string
   const appMetadata: unknown = session.user.app_metadata;
   const value = (appMetadata as Record<string, unknown> | null)?.[claim];
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function extractBooleanAppMetadataClaim(session: Session | null, claim: string): boolean {
+  if (!session) {
+    return false;
+  }
+  const appMetadata: unknown = session.user.app_metadata;
+  return (appMetadata as Record<string, unknown> | null)?.[claim] === true;
 }
 
 function isTenantRole(value: string | null): value is TenantRole {
@@ -106,6 +118,33 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     }
   }, []);
 
+  /**
+   * Full-page redirect to Google's consent screen; the browser comes back
+   * to `redirectTo` with a session already established (Supabase's own
+   * OAuth callback handling, detectSessionInUrl). Works for both a new
+   * user's first sign-up and a returning user's sign-in — Supabase treats
+   * both the same way for an OAuth provider, there's no separate "register
+   * with Google" call, which is exactly why this always lands on
+   * /onboarding rather than /admin/dashboard directly: tenant_id/tenant_role
+   * only exist for a user once they own a tenant (003_security_rls.sql's
+   * seed_owner_as_tenant_admin trigger), and there's no way to know from
+   * here alone whether this Google account already has one or needs
+   * OnboardingPage.tsx's business-info form. OnboardingPage checks
+   * tenantId itself and redirects straight through to the dashboard for a
+   * returning user, so this is a no-op detour for that case, not a wrong
+   * guess either way.
+   */
+  const loginWithGoogle = useCallback(async (): Promise<void> => {
+    setSessionExpiredMessage(null);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/onboarding` },
+    });
+    if (error) {
+      throw new Error(error.message);
+    }
+  }, []);
+
   const logout = useCallback(async (): Promise<void> => {
     const { error } = await supabase.auth.signOut();
     if (error) {
@@ -125,13 +164,15 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       session,
       tenantId: extractAppMetadataClaim(session, "tenant_id"),
       role: isTenantRole(role) ? role : null,
+      isSuperAdmin: extractBooleanAppMetadataClaim(session, "is_super_admin"),
       isLoading,
       sessionExpiredMessage,
       login,
+      loginWithGoogle,
       logout,
       getAccessToken,
     };
-  }, [session, isLoading, sessionExpiredMessage, login, logout, getAccessToken]);
+  }, [session, isLoading, sessionExpiredMessage, login, loginWithGoogle, logout, getAccessToken]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
