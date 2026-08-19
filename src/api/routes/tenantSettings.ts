@@ -18,18 +18,25 @@ export const tenantSettingsRouter: express.Router = express.Router({ mergeParams
 
 /**
  * Starter/DIY plan hard limit: a curated subset of ElevenLabs' own
- * premade voices (stable, well-known IDs from ElevenLabs' own voice
- * library — not tenant-cloned/uploaded voices, which cost more and are a
- * VIP-only capability). VIP tenants can pick any voice
- * GET /voices below returns; Starter tenants are restricted to this list
- * (or the platform default, elevenlabsVoiceId === null) — enforced in the
- * PATCH handler below, not just hidden in the UI.
+ * premade voices (not tenant-cloned/uploaded voices, which cost more and
+ * are a VIP-only capability) — chosen for working well in Romanian via
+ * eleven_multilingual_v2, plus one voice that's actually native Romanian.
+ * VIP tenants can pick any voice GET /voices below returns; Starter
+ * tenants are restricted to this list (or the platform default,
+ * elevenlabsVoiceId === null) — enforced in the PATCH handler below, not
+ * just hidden in the UI.
+ *
+ * IDs verified live against GET /v1/voices and a real Romanian-text
+ * synthesis call on this account (the previous list here — Rachel/Domi/
+ * Bella — had drifted: ElevenLabs' default premade roster changed and
+ * those names/IDs no longer match what the API actually returns; George/
+ * Adam/Laura/Ana Maria below are current as of this update).
  */
 const STARTER_ALLOWED_VOICE_IDS: readonly string[] = [
-  "21m00Tcm4TlvDq8ikWAM", // Rachel
+  "JBFqnCBsd6RMkjVDRZzb", // George — warm, works well for ro-RO via multilingual_v2
   "pNInz6obpgDQGcFmaJgB", // Adam
-  "AZnzlk1XvdvUeBnXmlld", // Domi
-  "EXAVITQu4vr4xnSDxMaL", // Bella
+  "FGY2WhTYpPnrIDTdsKH5", // Laura
+  "urzoE6aZYmSRdFQ6215h", // Ana Maria — native Romanian voice, not multilingual-adapted
 ];
 
 // Kept in sync with the BusinessType union (src/types/index.ts) and

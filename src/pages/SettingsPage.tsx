@@ -34,7 +34,7 @@ const SETTINGS_TABS: { value: SettingsTab; label: string }[] = [
  * real limit server-side regardless of what the frontend shows, so these
  * two lists drifting would be a UX inconsistency, not a security gap.
  */
-const STARTER_ALLOWED_VOICE_IDS: readonly string[] = ["21m00Tcm4TlvDq8ikWAM", "pNInz6obpgDQGcFmaJgB", "AZnzlk1XvdvUeBnXmlld", "EXAVITQu4vr4xnSDxMaL"];
+const STARTER_ALLOWED_VOICE_IDS: readonly string[] = ["JBFqnCBsd6RMkjVDRZzb", "pNInz6obpgDQGcFmaJgB", "FGY2WhTYpPnrIDTdsKH5", "urzoE6aZYmSRdFQ6215h"];
 
 const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
   { value: "clinic", label: "Medical clinic" },

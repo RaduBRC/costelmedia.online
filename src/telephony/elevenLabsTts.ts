@@ -52,11 +52,17 @@ const REQUEST_TIMEOUT_MS = 5000;
 
 export const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
 
-// stability up from ElevenLabs' own default: fewer take-to-take swings in
-// delivery reads as calmer and more composed. style kept low (not 0, some
-// warmth) rather than high/dramatic — same "calm, friendly" target, not
-// an animated/theatrical read.
-export const VOICE_SETTINGS = { stability: 0.55, similarity_boost: 0.8, style: 0.35, use_speaker_boost: true };
+// Retuned for conversational Romanian after live listening tests flagged
+// the previous values (stability 0.55, style 0.35) as reading flat/robotic
+// on ro-RO sessions specifically — multilingual_v2's Romanian output is
+// more sensitive to these knobs than its English output was. Lower
+// stability (0.40) allows more natural pitch/pace variation between
+// sentences instead of a clamped, monotone delivery; lower style (0.15)
+// pulls back from the previous value's exaggeration, which is what was
+// reading as unnatural/over-acted in Romanian even though it sounded fine
+// in English. similarity_boost unchanged (0.80 was already right — keeps
+// the timbre close to the source voice).
+export const VOICE_SETTINGS = { stability: 0.4, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true };
 
 /** Thrown when neither a tenant-specific nor the env var default voice/key is available. Distinct from ElevenLabsRequestError so callers can return a fast, specific "not configured" response instead of a generic failure. */
 export class ElevenLabsNotConfiguredError extends Error {}
@@ -170,11 +176,15 @@ function resolveModelId(): string {
  * Automatic fallback model when the primary (resolveModelId — normally
  * eleven_multilingual_v2) is rejected as unusable, e.g. "model not
  * available on your plan" or a similar bad-request response tied to the
- * *model* rather than the account/quota. Turbo trades some quality for
- * being ElevenLabs' most broadly-available model, so it's the right
- * "at least get audio out" fallback rather than failing the whole request.
+ * *model* rather than the account/quota. eleven_flash_v2_5 (ElevenLabs'
+ * current low-latency multilingual model, succeeding eleven_turbo_v2_5)
+ * trades some quality for being fast and broadly available, so it's the
+ * right "at least get audio out, quickly" fallback rather than failing
+ * the whole request — and, unlike turbo, it's the same model this app's
+ * telephony path can deliberately opt into via ELEVENLABS_MODEL_ID when
+ * the <800ms latency budget matters more than multilingual_v2's quality.
  */
-const FALLBACK_MODEL_ID = "eleven_turbo_v2_5";
+const FALLBACK_MODEL_ID = "eleven_flash_v2_5";
 
 /** Status codes worth retrying with FALLBACK_MODEL_ID — a model/parameter problem, not auth (401) or quota (429), which swapping models can't fix. */
 const MODEL_FALLBACK_RETRYABLE_STATUSES = new Set([400, 422]);
@@ -264,12 +274,48 @@ async function requestElevenLabsSpeechStream(
   });
 }
 
+/**
+ * Strips Markdown formatting artifacts before text reaches ElevenLabs —
+ * the LLM's reply text (groqAgent.ts) is plain conversational output, not
+ * meant to be Markdown, but the model occasionally reaches for `**bold**`,
+ * `- ` bullets, or `# ` headings anyway (especially when listing options
+ * or steps). Unstripped, ElevenLabs either tries to pronounce the literal
+ * symbols ("asterisk asterisk...") or pauses oddly around them — neither
+ * of which a caller on a phone call should ever hear. Applied once, here,
+ * so every caller of fetchElevenLabsSpeechStream (the Twilio voice
+ * pipeline AND the dashboard's /api/tts) gets it automatically rather
+ * than needing to remember to sanitize text themselves.
+ *
+ * Deliberately narrow: only strips the specific Markdown syntax these
+ * symbols form (paired emphasis markers, leading heading/bullet markers),
+ * not every occurrence of `*`/`#`/`_` — a bare `#` or `_` embedded in
+ * real content (an order number, a reference code) is left alone by the
+ * paired/positional rules above, though a genuinely stray one is still
+ * dropped by the final catch-all rather than read aloud as a symbol name.
+ * Mid-word hyphens ("10-15 minutes", "brake-pads") are never touched —
+ * only a `-` used as a line-leading bullet marker is a bullet.
+ */
+export function stripMarkdownForSpeech(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1") // **bold**
+    .replace(/__(.+?)__/g, "$1") // __bold__
+    .replace(/\*(.+?)\*/g, "$1") // *italic*
+    .replace(/_(.+?)_/g, "$1") // _italic_
+    .replace(/^#{1,6}\s+/gm, "") // # Heading
+    .replace(/^[-*]\s+/gm, "") // - bullet / * bullet
+    .replace(/[#*_]/g, "") // any remaining stray symbol
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 export async function fetchElevenLabsSpeechStream(
-  text: string,
+  rawText: string,
   outputFormat: string,
   voiceIdOverride?: string | null,
   externalSignal?: AbortSignal,
 ): Promise<ResponseWithBody> {
+  const text = stripMarkdownForSpeech(rawText);
   const apiKey = process.env["ELEVENLABS_API_KEY"];
   const voiceId = voiceIdOverride || process.env["ELEVENLABS_VOICE_ID"];
   if (!apiKey || !voiceId) {
@@ -291,7 +337,7 @@ export async function fetchElevenLabsSpeechStream(
     // A model/parameter-shaped rejection (not auth, not quota) on the
     // primary model gets exactly one retry against FALLBACK_MODEL_ID —
     // e.g. eleven_multilingual_v2 isn't enabled on this account's plan
-    // but eleven_turbo_v2_5 is. Skipped if the primary model already *was*
+    // but eleven_flash_v2_5 is. Skipped if the primary model already *was*
     // the fallback (env override set it explicitly), so this can't loop.
     if (!response.ok && MODEL_FALLBACK_RETRYABLE_STATUSES.has(response.status) && primaryModelId !== FALLBACK_MODEL_ID) {
       const primaryErrorBody = await response.text().catch(() => "");
