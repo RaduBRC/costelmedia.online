@@ -14,6 +14,16 @@
     />
     <link rel="manifest" href="/manifest.webmanifest" />
 
+    <!-- Fonts for the public landing page's ("/") dark audio-signal visual
+         design — loaded site-wide since it's a small, cacheable request,
+         rather than injected only for that one route. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800;900&family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+
     <!-- iOS "Add to Home Screen": Safari doesn't fully honor the standard
          manifest above for standalone launch/icon/title even on recent
          versions — these Apple-specific tags are still the reliable path.
