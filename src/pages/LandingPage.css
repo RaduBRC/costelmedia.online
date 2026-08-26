@@ -1,0 +1,468 @@
+/**
+ * Styles for the public marketing homepage's "audio-signal" visual world —
+ * scoped under .landing-signal (the page's own root element) so none of
+ * these rules leak into the dashboard, auth screens, or the legal pages
+ * (Privacy/Terms), which keep the standard light/dark Tailwind theme via
+ * PublicNav/Footer. This page deliberately commits to one dark visual
+ * world regardless of the site-wide theme — see the design rationale in
+ * LandingPage.tsx's header comment.
+ *
+ * `html { scroll-behavior: smooth }` is the one intentionally global rule
+ * here — it only affects in-page anchor jumps (#features, #pricing, ...),
+ * which every page linking to those anchors already expects to be smooth.
+ */
+html {
+  scroll-behavior: smooth;
+}
+
+.landing-signal {
+  --bg: #0a0a12;
+  --surface: #14131f;
+  --surface-raised: #1b1930;
+  --border: #29273f;
+  --border-hover: #4a4470;
+  --text: #f3f1fa;
+  --text-dim: #9c97b8;
+  --text-faint: #6b6689;
+  --violet: #8b6bff;
+  --violet-soft: #c3b4ff;
+  --cyan: #35e7c8;
+  --alert: #ff6a5c;
+  --alert-soft: #ffb199;
+  --font-display: "Unbounded", "Segoe UI", sans-serif;
+  --font-head: "Sora", "Segoe UI", sans-serif;
+  --font-body: "Manrope", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  /* `clip`, not `hidden` — `hidden` forces this div's own overflow-y to
+     `auto` (a CSS quirk: setting only one axis non-visible makes the other
+     axis compute to `auto`, not stay `visible`), which turns it into a
+     scroll container and breaks .story-stage's position:sticky (it starts
+     sticking relative to this div's own scrollport instead of the
+     viewport). `clip` prevents the horizontal overflow without creating a
+     scroll container. */
+  overflow-x: clip;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-signal .bubble,
+  .landing-signal .typing-dots span,
+  .landing-signal .live-dot {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .landing-signal .reveal {
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Fine, considered texture — not a flat vector fill. Sits above everything at near-zero opacity. */
+.landing-signal .grain {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+.landing-signal a { color: inherit; text-decoration: none; }
+.landing-signal h1, .landing-signal h2, .landing-signal h3 { text-wrap: balance; margin: 0; }
+.landing-signal p { margin: 0; }
+.landing-signal .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+/* ---------- nav ---------- */
+.landing-signal nav {
+  position: sticky; top: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px;
+  background: rgba(10, 10, 18, 0.72);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.landing-signal .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-head); font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+.landing-signal .brand-mark {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: linear-gradient(140deg, var(--violet), var(--cyan));
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 18px rgba(139, 107, 255, 0.55);
+  flex-shrink: 0;
+}
+.landing-signal .brand-mark svg { width: 16px; height: 16px; }
+.landing-signal .nav-links { display: flex; align-items: center; gap: 32px; font-size: 14.5px; color: var(--text-dim); }
+.landing-signal .nav-links a { transition: color 0.2s ease; }
+.landing-signal .nav-links a:hover { color: var(--text); }
+.landing-signal .nav-cta { display: flex; align-items: center; gap: 10px; }
+.landing-signal .btn-ghost {
+  font-family: var(--font-head); font-size: 13.5px; font-weight: 600;
+  color: var(--text-dim); padding: 9px 16px; border-radius: 8px;
+  border: 1px solid transparent; transition: all 0.2s ease; background: none; cursor: pointer;
+}
+.landing-signal .btn-ghost:hover { color: var(--text); border-color: var(--border); }
+.landing-signal .btn-solid {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-head); font-size: 13.5px; font-weight: 700;
+  color: #0a0a12; background: var(--cyan); padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer;
+  box-shadow: 0 0 0 rgba(53, 231, 200, 0); transition: box-shadow 0.25s ease, transform 0.15s ease;
+}
+.landing-signal .btn-solid:hover { box-shadow: 0 0 24px rgba(53, 231, 200, 0.45); transform: translateY(-1px); }
+.landing-signal .nav-menu-toggle {
+  display: none; width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); align-items: center; justify-content: center; cursor: pointer;
+}
+@media (max-width: 860px) {
+  .landing-signal .nav-links { display: none; }
+  .landing-signal .nav-cta .btn-ghost { display: none; }
+  .landing-signal .nav-menu-toggle { display: flex; }
+}
+.landing-signal .nav-mobile-menu {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 16px 18px; border-bottom: 1px solid var(--border);
+  background: rgba(10, 10, 18, 0.96); backdrop-filter: blur(14px);
+}
+.landing-signal .nav-mobile-menu a:not(.btn-solid), .landing-signal .nav-mobile-menu button:not(.btn-solid) {
+  display: flex; align-items: center; height: 46px; font-size: 15px; font-weight: 600;
+  color: var(--text-dim); font-family: var(--font-head); background: none; border: none; text-align: left; cursor: pointer;
+}
+.landing-signal .nav-mobile-menu a:not(.btn-solid):hover, .landing-signal .nav-mobile-menu button:not(.btn-solid):hover { color: var(--text); }
+.landing-signal .nav-mobile-menu .btn-solid { justify-content: center; margin-top: 6px; height: 46px; }
+
+/* ---------- story (scrollytelling intro) ---------- */
+.landing-signal .story { position: relative; height: 380vh; background: var(--bg); }
+.landing-signal .story-stage {
+  position: sticky; top: 0; height: 100vh; overflow: hidden;
+  perspective: 1200px;
+  display: flex; align-items: center; justify-content: center;
+}
+.landing-signal .story-vignette {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(ellipse 70% 60% at 50% 42%, transparent 30%, var(--bg) 92%);
+}
+.landing-signal canvas.story-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }
+.landing-signal .story-scene { position: absolute; inset: 0; z-index: 2; transform-style: preserve-3d; }
+.landing-signal .fix-chip {
+  position: absolute; z-index: 3; display: grid;
+  transform: translate3d(-50%, -50%, -120px);
+}
+.landing-signal .fix-chip-1 { left: 20%; top: 27%; }
+.landing-signal .fix-chip-2 { left: 79%; top: 68%; }
+.landing-signal .fix-chip span {
+  grid-area: 1 / 1; display: flex; align-items: center; gap: 7px;
+  padding: 11px 16px; border-radius: 11px; white-space: nowrap;
+  font-family: var(--font-head); font-weight: 700; font-size: 14.5px;
+  backdrop-filter: blur(6px);
+}
+.landing-signal .fix-chip .before { background: rgba(20, 19, 31, 0.82); border: 1px solid var(--alert); color: var(--alert-soft); box-shadow: 0 0 22px rgba(255, 106, 92, 0.22); }
+.landing-signal .fix-chip .after { background: rgba(20, 19, 31, 0.82); border: 1px solid var(--cyan); color: var(--cyan); box-shadow: 0 0 22px rgba(53, 231, 200, 0.28); }
+.landing-signal .chip {
+  position: absolute; left: var(--x); top: var(--y);
+  transform: translate3d(-50%, -50%, 0);
+  padding: 8px 14px; border-radius: 9px; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  background: rgba(20, 19, 31, 0.82);
+  border: 1px solid var(--alert);
+  color: var(--alert-soft);
+  box-shadow: 0 0 22px rgba(255, 106, 92, 0.18);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.landing-signal .story-copy {
+  position: relative; z-index: 3;
+  /* Explicit width, not just max-width — every child here is
+     position:absolute (out of flow), so this box has no in-flow content to
+     size itself from and, as a flex item of .story-stage, would otherwise
+     shrink to fit just its own padding (collapsing headline width to ~48px
+     and forcing every word onto its own line). */
+  width: 100%; max-width: 680px; margin: 0 auto; padding: 0 24px;
+  text-align: center; pointer-events: none;
+  transform-style: preserve-3d;
+}
+.landing-signal .story-line {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
+  will-change: opacity, transform; transform-style: preserve-3d;
+}
+.landing-signal .story-eyebrow {
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em;
+  color: var(--alert-soft); text-transform: uppercase;
+  will-change: opacity, transform;
+}
+.landing-signal .story-line.calm .story-eyebrow { color: var(--cyan); }
+.landing-signal .story-line h2 {
+  font-family: var(--font-head); font-weight: 700;
+  font-size: clamp(1.8rem, 4.4vw, 3rem); line-height: 1.15; color: var(--text);
+  transform-style: preserve-3d;
+}
+.landing-signal .story-line h2 .word { display: inline-block; will-change: opacity, transform, filter; }
+.landing-signal .story-line p { max-width: 480px; color: var(--text-dim); font-size: 16px; will-change: opacity, transform; }
+.landing-signal .story-progress {
+  position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
+  z-index: 4; display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+.landing-signal .story-progress-track { width: 120px; height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.landing-signal .story-progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--alert), var(--cyan)); }
+@media (prefers-reduced-motion: reduce) {
+  .landing-signal .story { height: auto; }
+  .landing-signal .story-stage { position: relative; height: auto; min-height: 100vh; padding: 80px 0; }
+  .landing-signal .chip, .landing-signal .fix-chip { display: none; }
+  .landing-signal .story-line { position: relative; opacity: 1 !important; margin-bottom: 40px; }
+  .landing-signal .story-line h2 .word { opacity: 1 !important; transform: none !important; filter: none !important; }
+}
+
+/* ---------- hero ---------- */
+.landing-signal .hero { position: relative; padding: 96px 24px 64px; text-align: center; overflow: hidden; }
+.landing-signal .hero-glow {
+  position: absolute; inset: -20% -10% auto -10%; height: 620px;
+  background: radial-gradient(ellipse 60% 50% at 50% 20%, rgba(139, 107, 255, 0.22), transparent 70%);
+  pointer-events: none; z-index: 0;
+}
+.landing-signal .eyebrow {
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: 0.06em;
+  color: var(--cyan); background: rgba(53, 231, 200, 0.08);
+  border: 1px solid rgba(53, 231, 200, 0.28);
+  padding: 6px 14px; border-radius: 100px;
+  margin-bottom: 28px;
+}
+.landing-signal .live-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  animation: signal-pulse-dot 1.8s ease-in-out infinite;
+}
+@keyframes signal-pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.landing-signal .hero h1 {
+  position: relative; z-index: 1;
+  font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(2.4rem, 5.4vw, 4.4rem);
+  line-height: 1.06; letter-spacing: -0.01em;
+  max-width: 880px; margin: 0 auto;
+}
+.landing-signal .hero h1 .accent { color: var(--violet-soft); }
+.landing-signal .hero p.lede { position: relative; z-index: 1; max-width: 620px; margin: 26px auto 0; font-size: 17px; color: var(--text-dim); }
+.landing-signal .hero-actions {
+  position: relative; z-index: 1;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 14px;
+  margin-top: 38px;
+}
+.landing-signal .btn-primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font-head); font-weight: 700; font-size: 15px;
+  color: #0a0a12; background: linear-gradient(135deg, var(--cyan), #7ef0da);
+  padding: 15px 28px; border-radius: 10px;
+  box-shadow: 0 0 0 rgba(53, 231, 200, 0);
+  transition: box-shadow 0.25s ease, transform 0.15s ease;
+}
+.landing-signal .btn-primary:hover { box-shadow: 0 6px 34px rgba(53, 231, 200, 0.4); transform: translateY(-2px); }
+.landing-signal .btn-secondary {
+  display: inline-flex; align-items: center; gap: 9px; justify-content: center;
+  font-family: var(--font-head); font-weight: 600; font-size: 15px;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 15px 26px; border-radius: 10px;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+}
+.landing-signal .btn-secondary:hover { border-color: var(--violet); transform: translateY(-2px); }
+.landing-signal .mic-icon { width: 16px; height: 16px; }
+.landing-signal .hero-hint { position: relative; z-index: 1; margin-top: 14px; font-size: 12.5px; color: var(--text-faint); }
+
+/* ---------- waveform ---------- */
+.landing-signal .waveform-wrap {
+  position: relative; z-index: 1;
+  max-width: 720px; margin: 56px auto 0;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface), var(--bg));
+  border-radius: 16px;
+  padding: 4px;
+}
+.landing-signal canvas.waveform-canvas { display: block; width: 100%; height: 96px; border-radius: 12px; }
+
+/* ---------- live demo panel ---------- */
+.landing-signal .demo-panel {
+  position: relative; z-index: 1;
+  max-width: 480px; margin: 28px auto 0;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px 18px 20px;
+}
+.landing-signal .demo-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-faint);
+  padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
+}
+.landing-signal .demo-head .rec { color: var(--cyan); display: flex; align-items: center; gap: 6px; }
+.landing-signal .demo-body { min-height: 132px; display: flex; flex-direction: column; gap: 10px; }
+.landing-signal .bubble {
+  max-width: 82%; padding: 9px 13px; border-radius: 12px; font-size: 13.5px;
+  opacity: 0; transform: translateY(6px);
+  animation: signal-bubble-in 0.35s ease forwards;
+}
+@keyframes signal-bubble-in { to { opacity: 1; transform: translateY(0); } }
+.landing-signal .bubble.caller { align-self: flex-start; background: var(--surface-raised); color: var(--text); border-bottom-left-radius: 3px; }
+.landing-signal .bubble.ai { align-self: flex-end; background: rgba(139, 107, 255, 0.16); color: var(--violet-soft); border: 1px solid rgba(139, 107, 255, 0.3); border-bottom-right-radius: 3px; }
+.landing-signal .typing-dots { display: inline-flex; gap: 3px; align-self: flex-start; padding: 9px 13px; }
+.landing-signal .typing-dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--text-faint); animation: signal-dot-bounce 1s infinite ease-in-out; }
+.landing-signal .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.landing-signal .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes signal-dot-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* ---------- sections ---------- */
+.landing-signal section { padding: 88px 24px; position: relative; }
+.landing-signal .tag {
+  display: inline-block; font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  letter-spacing: 0.05em; color: var(--cyan);
+  border: 1px solid var(--border); background: var(--surface);
+  padding: 5px 11px; border-radius: 6px; margin-bottom: 18px;
+}
+.landing-signal .section-head { max-width: 620px; margin: 0 auto 52px; text-align: center; }
+.landing-signal .section-head h2 { font-family: var(--font-head); font-weight: 700; font-size: clamp(1.7rem, 3vw, 2.3rem); letter-spacing: -0.01em; }
+.landing-signal .section-head p { margin-top: 12px; color: var(--text-dim); font-size: 15.5px; }
+
+.landing-signal .reveal { opacity: 0; transform: translateY(22px); transition: opacity 0.6s ease, transform 0.6s ease; }
+.landing-signal .reveal.in { opacity: 1; transform: translateY(0); }
+
+/* ---------- features ---------- */
+.landing-signal .features-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; max-width: 900px; margin: 0 auto; perspective: 900px; }
+@media (max-width: 720px) { .landing-signal .features-grid { grid-template-columns: 1fr; } }
+.landing-signal .feature-card {
+  position: relative;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 26px; transition: border-color 0.25s ease, transform 0.15s ease, box-shadow 0.25s ease;
+  transform: perspective(900px) rotateX(0) rotateY(0);
+}
+.landing-signal .feature-card:hover { border-color: var(--violet); box-shadow: 0 14px 40px rgba(139, 107, 255, 0.16); }
+/* Targeting-reticle corners — a considered nod to the audio-signal motif, not a default card treatment. */
+.landing-signal .feature-card::before, .landing-signal .feature-card::after,
+.landing-signal .price-card::before, .landing-signal .price-card::after,
+.landing-signal .niche-card::before, .landing-signal .niche-card::after {
+  content: ""; position: absolute; width: 14px; height: 14px;
+  border-color: var(--cyan); opacity: 0; transition: opacity 0.25s ease, width 0.25s ease, height 0.25s ease;
+  pointer-events: none;
+}
+.landing-signal .feature-card::before, .landing-signal .price-card::before, .landing-signal .niche-card::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; border-top-left-radius: 4px; }
+.landing-signal .feature-card::after, .landing-signal .price-card::after, .landing-signal .niche-card::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; border-bottom-right-radius: 4px; }
+.landing-signal .feature-card:hover::before, .landing-signal .feature-card:hover::after,
+.landing-signal .price-card:hover::before, .landing-signal .price-card:hover::after,
+.landing-signal .niche-card:hover::before, .landing-signal .niche-card:hover::after { opacity: 1; width: 20px; height: 20px; }
+.landing-signal .feature-icon {
+  width: 42px; height: 42px; border-radius: 10px;
+  background: rgba(139, 107, 255, 0.12); border: 1px solid rgba(139, 107, 255, 0.25);
+  display: flex; align-items: center; justify-content: center; color: var(--violet-soft);
+  margin-bottom: 16px;
+}
+.landing-signal .feature-icon svg { width: 20px; height: 20px; }
+.landing-signal .feature-card h3 { font-family: var(--font-head); font-size: 16px; font-weight: 700; }
+.landing-signal .feature-card p { margin-top: 8px; font-size: 14px; color: var(--text-dim); }
+
+/* ---------- niches ---------- */
+.landing-signal .niches-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+@media (max-width: 860px) { .landing-signal .niches-grid { grid-template-columns: repeat(2, 1fr); } }
+.landing-signal .niche-card {
+  position: relative;
+  text-align: center; padding: 26px 18px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--surface);
+  transition: border-color 0.25s ease, transform 0.25s ease;
+}
+.landing-signal .niche-card:hover { border-color: var(--cyan); transform: translateY(-3px); }
+.landing-signal .niche-icon {
+  width: 44px; height: 44px; margin: 0 auto 12px; border-radius: 50%;
+  background: rgba(53, 231, 200, 0.1); border: 1px solid rgba(53, 231, 200, 0.28);
+  display: flex; align-items: center; justify-content: center; color: var(--cyan);
+}
+.landing-signal .niche-icon svg { width: 19px; height: 19px; }
+.landing-signal .niche-card h3 { font-family: var(--font-head); font-size: 14.5px; font-weight: 700; }
+.landing-signal .niche-card p { margin-top: 6px; font-size: 12.5px; color: var(--text-faint); }
+
+/* ---------- pricing ---------- */
+.landing-signal .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+@media (max-width: 860px) { .landing-signal .pricing-grid { grid-template-columns: 1fr; max-width: 380px; margin: 0 auto; } }
+.landing-signal .price-card {
+  position: relative;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 28px 24px; display: flex; flex-direction: column;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.landing-signal .price-card:hover { transform: translateY(-4px); }
+.landing-signal .price-card.highlight {
+  border-color: var(--violet); background: linear-gradient(180deg, rgba(139,107,255,0.08), var(--surface) 40%);
+  box-shadow: 0 0 0 1px rgba(139, 107, 255, 0.25), 0 20px 50px rgba(139, 107, 255, 0.15);
+}
+.landing-signal .price-badge {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em;
+  color: #0a0a12; background: var(--cyan); width: fit-content; padding: 4px 10px; border-radius: 100px;
+  margin-bottom: 14px;
+}
+.landing-signal .price-card h3 { font-family: var(--font-head); font-size: 17px; font-weight: 700; }
+.landing-signal .price-card .tagline { margin-top: 5px; font-size: 12.5px; color: var(--text-faint); min-height: 32px; }
+.landing-signal .price-num { font-family: var(--font-mono); font-size: 34px; font-weight: 600; margin-top: 14px; color: var(--text); }
+.landing-signal .price-num span { font-size: 13px; font-weight: 500; color: var(--text-faint); }
+.landing-signal .price-list { list-style: none; padding: 0; margin: 20px 0 0; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.landing-signal .price-list li { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; color: var(--text-dim); }
+.landing-signal .price-list svg { width: 15px; height: 15px; margin-top: 2px; flex-shrink: 0; color: var(--cyan); }
+.landing-signal .price-cta {
+  display: block; margin-top: 22px; text-align: center; padding: 12px; border-radius: 9px;
+  font-family: var(--font-head); font-weight: 700; font-size: 14px;
+  border: 1px solid var(--border); transition: all 0.2s ease;
+}
+.landing-signal .price-cta:hover { border-color: var(--violet); background: rgba(139,107,255,0.08); }
+.landing-signal .price-card.highlight .price-cta { background: var(--cyan); color: #0a0a12; border-color: var(--cyan); }
+.landing-signal .price-card.highlight .price-cta:hover { box-shadow: 0 0 22px rgba(53, 231, 200, 0.4); }
+.landing-signal .pricing-note { text-align: center; margin-top: 28px; font-size: 12.5px; color: var(--text-faint); font-family: var(--font-mono); }
+
+/* ---------- final cta ---------- */
+.landing-signal .final-cta { text-align: center; }
+.landing-signal .final-cta .ring {
+  width: 56px; height: 56px; margin: 0 auto 22px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(139,107,255,0.25), transparent 70%);
+  border: 1px solid rgba(139, 107, 255, 0.4);
+  display: flex; align-items: center; justify-content: center; color: var(--violet-soft);
+}
+.landing-signal .final-cta h2 { font-family: var(--font-head); font-weight: 700; font-size: clamp(1.6rem, 3vw, 2.1rem); }
+.landing-signal .final-cta p { margin-top: 12px; color: var(--text-dim); max-width: 480px; margin-left: auto; margin-right: auto; }
+
+/* ---------- footer ---------- */
+.landing-signal footer {
+  padding: 40px 24px 32px; border-top: 1px solid var(--border);
+}
+.landing-signal .footer-inner { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+.landing-signal .footer-top { display: flex; flex-direction: column; gap: 16px; }
+@media (min-width: 640px) { .landing-signal .footer-top { flex-direction: row; justify-content: space-between; } }
+.landing-signal .footer-brand p { max-width: 320px; font-size: 12.5px; color: var(--text-faint); margin-top: 8px; }
+.landing-signal .footer-brand a { font-size: 12.5px; color: var(--cyan); }
+.landing-signal .footer-brand a:hover { text-decoration: underline; }
+.landing-signal .footer-links { display: grid; grid-template-columns: repeat(2, 1fr); gap: 28px; }
+@media (min-width: 640px) { .landing-signal .footer-links { display: flex; gap: 56px; } }
+.landing-signal .footer-col { display: flex; flex-direction: column; gap: 8px; }
+.landing-signal .footer-col span.label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 2px; }
+.landing-signal .footer-col a, .landing-signal .footer-col button {
+  font-size: 12.5px; color: var(--text-dim); background: none; border: none; padding: 0; text-align: left; cursor: pointer; font-family: inherit;
+}
+.landing-signal .footer-col a:hover, .landing-signal .footer-col button:hover { color: var(--cyan); }
+.landing-signal .footer-bottom { padding-top: 20px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); }
+
+/* ---------- phone-sized screens ---------- */
+@media (max-width: 640px) {
+  .landing-signal .story { height: 320vh; }
+  .landing-signal .story-line h2 { padding: 0 6px; }
+  .landing-signal .story-line p { font-size: 14.5px; padding: 0 12px; }
+  .landing-signal .chip { font-size: 10.5px; padding: 6px 10px; }
+  .landing-signal .fix-chip-1 { left: 50%; top: 18%; }
+  .landing-signal .fix-chip-2 { left: 50%; top: 84%; }
+  .landing-signal .fix-chip span { font-size: 12px; padding: 9px 13px; white-space: normal; max-width: 230px; text-align: center; }
+  .landing-signal .story-progress { bottom: 18px; }
+  .landing-signal .story-progress-track { width: 90px; }
+  .landing-signal .hero { padding: 72px 18px 48px; }
+  .landing-signal .demo-panel { max-width: 100%; }
+  .landing-signal section { padding: 64px 18px; }
+}
