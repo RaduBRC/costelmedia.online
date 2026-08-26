@@ -9,17 +9,20 @@
  * Latency budget for the < 800ms round-trip target: Deepgram's
  * `endpointing=300ms` is the turn-detection delay, Groq's completion is
  * typically 200–500ms on their LPU inference, and ElevenLabs' `/stream`
- * endpoint starts returning audio before synthesis finishes. None of that
- * is enforced in code — it's a property of the chosen services and of not
- * adding buffering of our own in this file (audio is forwarded/sent
- * chunk-by-chunk, never accumulated into one big blob first).
+ * endpoint starts returning audio before synthesis finishes. Outbound
+ * audio (the agent's own replies) is still forwarded chunk-by-chunk, never
+ * buffered — but INBOUND audio (the caller's speech) is now buffered for
+ * the duration of one utterance (onSpeechStarted to onUtteranceEnd) so it
+ * can be handed to Whisper (whisperStt.ts) as a complete clip once
+ * Deepgram signals the turn is over — see onUtteranceEnd below for why
+ * that's a deliberate latency/accuracy tradeoff, not an oversight.
  */
 import { WebSocketServer } from "ws";
 import type { RawData, WebSocket } from "ws";
 import type { Server as HttpServer, IncomingMessage } from "node:http";
 import { processClientMessage } from "../agent/groqAgent.js";
 import { getVoiceGreeting } from "../agent/promptBuilder.js";
-import { getTenantById } from "../db/supabase.js";
+import { getTenantById, listServices } from "../db/supabase.js";
 import {
   appendTranscriptTurn,
   beginAgentSpeech,
@@ -40,7 +43,8 @@ import {
   streamTextToSpeech,
 } from "./elevenLabsTts.js";
 import { rawDataToUtf8String } from "./rawData.js";
-import type { ConversationTurn, Tenant } from "../types/index.js";
+import { transcribeWithWhisper } from "./whisperStt.js";
+import type { ConversationTurn, Service, Tenant } from "../types/index.js";
 import { evaluateThreat, GENERIC_BLOCKED_REPLY } from "../security/threatSentinel.js";
 
 const VOICE_STREAM_PATH = "/api/v1/voice/stream";
@@ -148,6 +152,17 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
   let streamSid: string | null = null;
   let deepgram: DeepgramStreamHandle | null = null;
   let utteranceBuffer = "";
+  // Raw mu-law audio for the utterance currently in progress — fed to
+  // Whisper (whisperStt.ts) once Deepgram signals the utterance is
+  // complete, so the ACTUAL transcription comes from Whisper, not just
+  // Deepgram's own real-time (lower-accuracy) text. Deepgram still drives
+  // *when* an utterance starts/ends (onSpeechStarted/onUtteranceEnd) —
+  // only streaming STT can do that in real time — this buffer exists so
+  // there's real audio to hand Whisper once that boundary is known. Reset
+  // on onSpeechStarted (a new utterance is starting — discard whatever
+  // silence/room-noise accumulated before that point), not just after
+  // each turn, so this never grows to cover the whole call.
+  let utteranceAudioChunks: Buffer[] = [];
   let turnInFlight = false;
   const clientIp = clientIpFromUpgradeRequest(req);
   // Fetched once, in the "start" handler, and reused for every speak()
@@ -158,6 +173,11 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
   // var default in that case (fetchElevenLabsSpeechStream), so a
   // still-null cachedTenant is safe, not a blocking condition.
   let cachedTenant: Tenant | null = null;
+  // Same idea, for Whisper's dynamic prompt (buildWhisperPrompt, whisperStt.ts)
+  // — best-effort, defaults to empty (the prompt still works fine with no
+  // service names, just less business-specific bias) rather than blocking
+  // anything if the fetch fails.
+  let cachedServices: Service[] = [];
 
   async function speak(activeStreamSid: string, text: string): Promise<void> {
     const controller = beginAgentSpeech(activeStreamSid);
@@ -293,12 +313,19 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
       // than rejecting the whole Promise.all.
       void (async () => {
         let tenant: Tenant | null;
+        let services: Service[];
         try {
-          [, tenant] = await Promise.all([
+          [, tenant, services] = await Promise.all([
             createCallSession({ callSid, streamSid: sid, tenantId, callerPhone }),
             getTenantById(tenantId).catch((error: unknown) => {
               console.error(`Failed to fetch tenant ${tenantId} for call stream ${sid} (falling back to a generic greeting):`, error);
               return null;
+            }),
+            // Best-effort, same reasoning as the tenant fetch above —
+            // only used for Whisper's dynamic prompt bias, never blocking.
+            listServices(tenantId, { activeOnly: true }).catch((error: unknown) => {
+              console.error(`Failed to fetch services for tenant ${tenantId} for call stream ${sid} (Whisper prompt will omit them):`, error);
+              return [];
             }),
           ]);
         } catch (error) {
@@ -306,6 +333,7 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
           return;
         }
         cachedTenant = tenant;
+        cachedServices = services;
         const greeting = tenant ? getVoiceGreeting(tenant) : DEFAULT_VOICE_GREETING;
         appendTranscriptTurn(sid, "agent", greeting);
         try {
@@ -328,17 +356,42 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
           }
         },
         onUtteranceEnd: () => {
-          if (turnInFlight || utteranceBuffer.trim().length === 0) {
+          if (turnInFlight || (utteranceBuffer.trim().length === 0 && utteranceAudioChunks.length === 0)) {
             return;
           }
-          const transcript = utteranceBuffer.trim();
+          const deepgramTranscript = utteranceBuffer.trim();
+          const audioSnapshot = utteranceAudioChunks.length > 0 ? Buffer.concat(utteranceAudioChunks) : null;
           utteranceBuffer = "";
+          utteranceAudioChunks = [];
           turnInFlight = true;
-          void handleUtterance(tenantId, callerPhone, transcript).finally(() => {
+          void (async () => {
+            // Whisper is the actual STT engine now — Deepgram's own text
+            // is only the fallback for when Whisper can't produce one
+            // (not configured, request failed/timed out, or the buffered
+            // audio really was silence per its RMS gate) or when there's
+            // no tenant yet to build a prompt for. Never both silently
+            // dropped: if Whisper comes back empty, Deepgram's transcript
+            // (if any) still carries the turn.
+            let transcript = deepgramTranscript;
+            if (cachedTenant && audioSnapshot) {
+              const whisperTranscript = await transcribeWithWhisper(audioSnapshot, cachedTenant, cachedServices);
+              if (whisperTranscript) {
+                transcript = whisperTranscript;
+              }
+            }
+            if (!transcript) {
+              return; // Both Whisper and Deepgram came up empty — nothing to act on this turn.
+            }
+            await handleUtterance(tenantId, callerPhone, transcript);
+          })().finally(() => {
             turnInFlight = false;
           });
         },
         onSpeechStarted: () => {
+          // A new utterance is starting — discard whatever silence/room
+          // noise accumulated in the buffer since the last one ended, so
+          // it never grows to cover dead air between turns.
+          utteranceAudioChunks = [];
           if (!streamSid) return;
           const wasSpeaking = interruptAgentSpeech(streamSid);
           if (wasSpeaking) {
@@ -356,7 +409,12 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
     }
 
     if (parsed.event === "media" && "media" in parsed) {
-      deepgram?.sendAudio(Buffer.from(parsed.media.payload, "base64"));
+      const audioChunk = Buffer.from(parsed.media.payload, "base64");
+      deepgram?.sendAudio(audioChunk);
+      // Same raw mu-law bytes, also buffered for Whisper (see
+      // onUtteranceEnd/onSpeechStarted above) — decoded once here, not
+      // twice, since both consumers want the identical bytes.
+      utteranceAudioChunks.push(audioChunk);
       return;
     }
 
