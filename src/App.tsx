@@ -37,8 +37,12 @@ export default function App(): JSX.Element {
     <ToastProvider>
       <AuthProvider>
         <Routes>
+          {/* Not nested under <PublicLayout/> — the landing page commits to
+              its own dark "audio-signal" visual world with its own nav and
+              footer (see LandingPage.tsx's header comment), while
+              /privacy and /terms keep the standard site chrome. */}
+          <Route path="/" element={<LandingPage />} />
           <Route element={<PublicLayout />}>
-            <Route path="/" element={<LandingPage />} />
             <Route path="/privacy" element={<PrivacyPolicyPage />} />
             <Route path="/terms" element={<TermsOfServicePage />} />
           </Route>
