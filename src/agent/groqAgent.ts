@@ -16,6 +16,8 @@ import {
   getOrCreateClientProfile,
   getTenantById,
   insertConversationLog,
+  insertKnowledgeGap,
+  insertUsageEvent,
   listFaqs,
   listServices,
   SlotNoLongerAvailableError,
@@ -23,7 +25,7 @@ import {
   updateClientToneProfile,
 } from "../db/supabase.js";
 import { sanitizeUserInput } from "./guardrails.js";
-import { buildSystemPrompt } from "./promptBuilder.js";
+import { buildSystemPrompt, KNOWLEDGE_GAP_MARKER } from "./promptBuilder.js";
 import type {
   BookingChannel,
   CancelAppointmentArgs,
@@ -76,6 +78,8 @@ export interface GroqMessage {
 
 interface GroqChatCompletionResponse {
   choices: { message: GroqMessage; finish_reason: string }[];
+  /** OpenAI-compatible token accounting Groq returns on every completion — the actual number this app's usage tracking (usage_events, 023_voice_improvements.sql) reports, not an estimate. */
+  usage?: { total_tokens?: number };
 }
 
 function isGroqChatCompletionResponse(value: unknown): value is GroqChatCompletionResponse {
@@ -94,6 +98,8 @@ interface CallGroqOptions {
   tools?: GroqToolDefinition[];
   toolChoice?: GroqToolChoice;
   jsonMode?: boolean;
+  /** When given, this call's real token usage (Groq's own count, not an estimate) is logged to usage_events — see the cost-visibility work in 023_voice_improvements.sql. Omitted for calls with no tenant context yet (there isn't one to attribute cost to). */
+  tenantId?: string;
 }
 
 /**
@@ -150,6 +156,9 @@ export async function callGroq(messages: GroqMessage[], options: CallGroqOptions
       if (!firstChoice) {
         throw new GroqUnavailableError("Groq chat completion response contained no choices.");
       }
+      if (options.tenantId && payload.usage?.total_tokens) {
+        void insertUsageEvent({ tenantId: options.tenantId, service: "groq_llm", quantity: payload.usage.total_tokens, unit: "tokens" });
+      }
       return firstChoice.message;
     }
 
@@ -199,7 +208,7 @@ const NEUTRAL_TONE_ASSESSMENT: ToneAssessment = {
 };
 
 /** Single-pass mood read: one small, fast Groq call producing strict JSON. */
-async function assessTone(message: string): Promise<ToneAssessment> {
+async function assessTone(message: string, tenantId: string): Promise<ToneAssessment> {
   const response = await callGroq(
     [
       {
@@ -212,7 +221,7 @@ async function assessTone(message: string): Promise<ToneAssessment> {
       },
       { role: "user", content: message },
     ],
-    { jsonMode: true },
+    { jsonMode: true, tenantId },
   );
 
   if (!response.content) {
@@ -251,7 +260,7 @@ async function assessAndPersistTone(tenantId: string, clientProfile: ClientProfi
 }> {
   let tone: ToneAssessment;
   try {
-    tone = await assessTone(message);
+    tone = await assessTone(message, tenantId);
   } catch {
     // Best-effort degradation: keep the conversation going with a neutral
     // read rather than failing the whole turn over the tone pass alone.
@@ -550,6 +559,25 @@ function withOutcome(base: Omit<ProcessMessageResult, "createdAppointmentId" | "
 }
 
 /**
+ * Applied to every raw reply before it's ever returned — see
+ * promptBuilder.ts's KNOWLEDGE_GAP_MARKER for the full mechanism. Strips
+ * the marker (a client must never see or hear it) and, only when it was
+ * actually present, fires a best-effort, non-blocking knowledge_gaps
+ * insert with the client's real question — a logging hiccup here must
+ * never fail or delay the reply the client is waiting for, hence
+ * fire-and-forget rather than awaited.
+ */
+function finalizeReply(rawReply: string, tenant: Tenant, channel: BookingChannel, question: string): string {
+  if (!rawReply.includes(KNOWLEDGE_GAP_MARKER)) {
+    return rawReply;
+  }
+  void insertKnowledgeGap({ tenantId: tenant.id, businessType: tenant.businessType, question, channel }).catch((error: unknown) => {
+    console.error(`Failed to log knowledge gap for tenant ${tenant.id}:`, error);
+  });
+  return rawReply.replaceAll(KNOWLEDGE_GAP_MARKER, "").trim();
+}
+
+/**
  * Processes one inbound client message end to end: sanitizes the input,
  * reads tone, persists it, runs the Groq function-calling loop against the
  * tenant's live calendar and appointment data, and returns a tone-matched
@@ -605,10 +633,11 @@ export async function processClientMessage(
       const response = await callGroq(conversation, {
         tools: TOOLS,
         toolChoice: isLastRound ? "none" : "auto",
+        tenantId,
       });
 
       if (!response.tool_calls || response.tool_calls.length === 0) {
-        return withOutcome({ reply: response.content ?? "", toneAssessment: tone, actionsTaken }, outcome);
+        return withOutcome({ reply: finalizeReply(response.content ?? "", tenant, channel, sanitizedMessage), toneAssessment: tone, actionsTaken }, outcome);
       }
 
       conversation.push(response);
@@ -618,8 +647,8 @@ export async function processClientMessage(
     }
 
     // Exhausted tool rounds without a final answer; ask once more with tools disabled.
-    const finalResponse = await callGroq(conversation, { toolChoice: "none" });
-    return withOutcome({ reply: finalResponse.content ?? "", toneAssessment: tone, actionsTaken }, outcome);
+    const finalResponse = await callGroq(conversation, { toolChoice: "none", tenantId });
+    return withOutcome({ reply: finalizeReply(finalResponse.content ?? "", tenant, channel, sanitizedMessage), toneAssessment: tone, actionsTaken }, outcome);
   } catch (error) {
     if (error instanceof GroqUnavailableError) {
       // Previously silent — the client only ever saw the generic

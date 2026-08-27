@@ -60,7 +60,7 @@ describe("conversational Romanian voice tuning", () => {
   });
 
   it("uses the retuned conversational voice settings", () => {
-    expect(VOICE_SETTINGS).toEqual({ stability: 0.4, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true });
+    expect(VOICE_SETTINGS).toEqual({ stability: 0.48, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true });
   });
 });
 

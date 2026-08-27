@@ -16,6 +16,7 @@ import {
   LogOut,
   MessageSquare,
   Phone,
+  PhoneCall,
   Settings as SettingsIcon,
   ShieldCheck,
   Sparkles,
@@ -37,6 +38,7 @@ interface NavItem {
 const BUSINESS_NAV: NavItem[] = [
   { to: "/admin/dashboard", label: "Overview", icon: LayoutDashboard },
   { to: "/admin/calendar", label: "Calendar & Bookings", icon: CalendarDays },
+  { to: "/admin/calls", label: "Call Logs", icon: PhoneCall },
   { to: "/admin/clients", label: "Client Intelligence", icon: Users },
   { to: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/admin/services", label: "Service Catalog", icon: Wrench },

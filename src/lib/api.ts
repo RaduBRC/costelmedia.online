@@ -10,12 +10,16 @@ import type {
   Appointment,
   AppointmentStatus,
   BusinessType,
+  CallTranscriptRecord,
   ClientProfile,
   Currency,
   Faq,
+  KnowledgeGap,
   ProcessMessageResult,
   Service,
+  ServiceFailure,
   Slot,
+  SttStrategy,
   Tenant,
   TenantDashboardMetrics,
   TenantPlan,
@@ -153,6 +157,7 @@ export interface TenantSettingsPatch {
   publicPhoneNumber?: string | null;
   address?: string | null;
   toneOfVoice?: ToneOfVoice;
+  sttStrategy?: SttStrategy;
 }
 
 export function updateTenant(tenantId: string, patch: TenantSettingsPatch): Promise<Tenant> {
@@ -212,6 +217,89 @@ export function updateSuperAdminTenantPlan(tenantId: string, plan: TenantPlan): 
   return apiFetch<Tenant>(`/super-admin/tenants/${encodeURIComponent(tenantId)}/plan`, {
     method: "PATCH",
     body: JSON.stringify({ plan }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge gaps — a real recurring question that neither the tenant's own
+// FAQs nor the niche fallback knowledge base covered.
+// ---------------------------------------------------------------------------
+
+export function getKnowledgeGaps(tenantId: string): Promise<KnowledgeGap[]> {
+  return apiFetch<KnowledgeGap[]>(`/tenants/${encodeURIComponent(tenantId)}/knowledge-gaps`);
+}
+
+export function getSuperAdminKnowledgeGaps(): Promise<KnowledgeGap[]> {
+  return apiFetch<KnowledgeGap[]>("/super-admin/knowledge-gaps");
+}
+
+// ---------------------------------------------------------------------------
+// Call transcripts — /admin/calls (CallLogsPage.tsx).
+// ---------------------------------------------------------------------------
+
+export function getCallTranscripts(tenantId: string, needsFollowUpOnly = false): Promise<CallTranscriptRecord[]> {
+  const query = needsFollowUpOnly ? "?needsFollowUpOnly=true" : "";
+  return apiFetch<CallTranscriptRecord[]>(`/tenants/${encodeURIComponent(tenantId)}/call-transcripts${query}`);
+}
+
+// ---------------------------------------------------------------------------
+// Usage / cost visibility.
+// ---------------------------------------------------------------------------
+
+export interface UsageSummaryRow {
+  service: "groq_llm" | "groq_whisper" | "elevenlabs_tts" | "twilio_sms" | "twilio_voice";
+  totalQuantity: number;
+  unit: string;
+  eventCount: number;
+}
+
+export function getTenantUsage(tenantId: string): Promise<UsageSummaryRow[]> {
+  return apiFetch<UsageSummaryRow[]>(`/tenants/${encodeURIComponent(tenantId)}/usage`);
+}
+
+export function getSuperAdminUsage(): Promise<UsageSummaryRow[]> {
+  return apiFetch<UsageSummaryRow[]>("/super-admin/usage");
+}
+
+// ---------------------------------------------------------------------------
+// System health (super admin) — voice pipeline latency + recent failures.
+// ---------------------------------------------------------------------------
+
+export interface SystemHealthSummary {
+  totalTurns: number;
+  whisperUsageRatePct: number;
+  avgLlmLatencyMs: number | null;
+  avgTtsFirstByteLatencyMs: number | null;
+  avgTotalTurnLatencyMs: number | null;
+  recentFailures: ServiceFailure[];
+}
+
+export function getSystemHealth(): Promise<SystemHealthSummary> {
+  return apiFetch<SystemHealthSummary>("/super-admin/system-health");
+}
+
+// ---------------------------------------------------------------------------
+// Twilio number provisioning — self-service alternative to "ask support".
+// ---------------------------------------------------------------------------
+
+export interface AvailableTwilioNumber {
+  phoneNumber: string;
+  friendlyName: string;
+  locality: string | null;
+  region: string | null;
+  monthlyPriceHint: string;
+}
+
+export function getAvailableTwilioNumbers(tenantId: string, areaCode?: string): Promise<AvailableTwilioNumber[]> {
+  const query = areaCode ? `?areaCode=${encodeURIComponent(areaCode)}` : "";
+  return apiFetch<AvailableTwilioNumber[]>(`/tenants/${encodeURIComponent(tenantId)}/phone/available-numbers${query}`);
+}
+
+/** REAL MONEY the instant this succeeds — see tenantSettings.ts's own route comment. Never call this without the user having explicitly confirmed the specific number and price in the UI first. */
+export function provisionTwilioNumber(tenantId: string, phoneNumber: string): Promise<{ phoneNumber: string; sid: string }> {
+  return apiFetch<{ phoneNumber: string; sid: string }>(`/tenants/${encodeURIComponent(tenantId)}/phone/provision`, {
+    method: "POST",
+    body: JSON.stringify({ phoneNumber, confirm: true }),
   });
 }
 

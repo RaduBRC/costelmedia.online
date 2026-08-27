@@ -43,6 +43,7 @@ const BASE_TENANT: Tenant = {
   toneOfVoice: "friendly",
   plan: "starter",
   requiredBookingFields: null,
+  sttStrategy: "deepgram_only",
 };
 
 function tenantFor(businessType: BusinessType, name: string, overrides: Partial<Tenant> = {}): Tenant {

@@ -102,6 +102,7 @@ function tenantFixtureFor(scenario: EvalScenario): Tenant {
     toneOfVoice: "friendly",
     plan: "starter",
     requiredBookingFields: null,
+    sttStrategy: "deepgram_only",
   };
   return { ...base, ...scenario.tenantOverrides };
 }

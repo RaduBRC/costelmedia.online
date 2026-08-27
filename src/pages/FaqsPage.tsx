@@ -7,12 +7,12 @@
  * as services — nothing cached in between.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { createFaq, deleteFaq, listFaqs, patchFaq } from "../lib/api.js";
+import { HelpCircle, Loader2, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { createFaq, deleteFaq, getKnowledgeGaps, listFaqs, patchFaq } from "../lib/api.js";
 import type { FaqInput } from "../lib/api.js";
 import { useToast } from "../components/Toast.js";
 import { useAuth } from "../context/AuthContext.js";
-import type { Faq } from "../types/index.js";
+import type { Faq, KnowledgeGap } from "../types/index.js";
 
 const EMPTY_FORM: FaqInput = { question: "", answer: "", displayOrder: 0, isActive: true };
 
@@ -113,8 +113,10 @@ export default function FaqsPage(): JSX.Element {
   const { tenantId, role } = useAuth();
   const { showToast } = useToast();
   const [faqs, setFaqs] = useState<Faq[]>([]);
+  const [gaps, setGaps] = useState<KnowledgeGap[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editing, setEditing] = useState<Faq | "new" | null>(null);
+  const [draftQuestion, setDraftQuestion] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   const refresh = useCallback(() => {
@@ -126,11 +128,23 @@ export default function FaqsPage(): JSX.Element {
         showToast(error instanceof Error ? error.message : "Failed to load FAQs.", "error");
       })
       .finally(() => setIsLoading(false));
+    // Best-effort, separate from the main load state — a failure here
+    // shouldn't block the FAQ list itself from showing.
+    getKnowledgeGaps(tenantId)
+      .then(setGaps)
+      .catch(() => {
+        /* Suggested-FAQs panel just stays empty — not worth a toast. */
+      });
   }, [tenantId, showToast]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const handleAddFromGap = (question: string): void => {
+    setDraftQuestion(question);
+    setEditing("new");
+  };
 
   const handleSubmit = (input: FaqInput): void => {
     if (!tenantId) return;
@@ -140,6 +154,7 @@ export default function FaqsPage(): JSX.Element {
       .then(() => {
         showToast(editing === "new" ? "FAQ added." : "FAQ updated.", "success");
         setEditing(null);
+        setDraftQuestion("");
         refresh();
       })
       .catch((error: unknown) => {
@@ -182,13 +197,49 @@ export default function FaqsPage(): JSX.Element {
         </div>
         <button
           type="button"
-          onClick={() => setEditing("new")}
+          onClick={() => {
+            setDraftQuestion("");
+            setEditing("new");
+          }}
           className="flex h-11 items-center gap-1.5 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white transition active:scale-95"
         >
           <Plus className="h-4 w-4" />
           Add FAQ
         </button>
       </div>
+
+      {gaps.length > 0 && (
+        <section className="rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-900 dark:bg-violet-950/30">
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-violet-900 dark:text-violet-200">
+            <Sparkles className="h-4 w-4" />
+            Suggested FAQs from real questions
+          </h3>
+          <p className="mb-3 text-xs text-violet-800 dark:text-violet-300">
+            These are real questions callers/chatters asked that neither your FAQs nor the general knowledge base covered — a good sign
+            it's worth adding a real answer.
+          </p>
+          <ul className="space-y-2">
+            {gaps.slice(0, 10).map((gap) => (
+              <li
+                key={gap.id}
+                className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-sm text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200"
+              >
+                <span className="flex items-center gap-2">
+                  <HelpCircle className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                  {gap.question}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleAddFromGap(gap.question)}
+                  className="shrink-0 rounded-lg border border-violet-300 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:bg-violet-100 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/60"
+                >
+                  Add as FAQ
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <table className="w-full text-left text-sm">
@@ -258,10 +309,13 @@ export default function FaqsPage(): JSX.Element {
         <FaqFormModal
           initial={
             editing === "new"
-              ? EMPTY_FORM
+              ? { ...EMPTY_FORM, question: draftQuestion }
               : { question: editing.question, answer: editing.answer, displayOrder: editing.displayOrder, isActive: editing.isActive }
           }
-          onCancel={() => setEditing(null)}
+          onCancel={() => {
+            setEditing(null);
+            setDraftQuestion("");
+          }}
           onSubmit={handleSubmit}
           isSaving={isSaving}
         />

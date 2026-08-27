@@ -8,10 +8,21 @@
  */
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
-import { getTenantById, getTenantTwilioRouting, insertVipLead, updateTenant } from "../../db/supabase.js";
+import { resolveTwilioCredentials, searchAvailableTwilioNumbers, purchaseTwilioNumber, TwilioDeliveryError } from "../../channels/twilioService.js";
+import type { AvailableTwilioNumber } from "../../channels/twilioService.js";
+import {
+  getTenantById,
+  getTenantTwilioRouting,
+  getUsageSummary,
+  insertVipLead,
+  listCallTranscripts,
+  listKnowledgeGapsForTenant,
+  setTenantTwilioPhoneNumber,
+  updateTenant,
+} from "../../db/supabase.js";
 import { DEFAULT_VOICE_ID, ElevenLabsNotConfiguredError, ElevenLabsRequestError, ElevenLabsTimeoutError, listElevenLabsVoices } from "../../telephony/elevenLabsTts.js";
 import type { ElevenLabsVoice } from "../../telephony/elevenLabsTts.js";
-import type { BusinessType, ToneOfVoice, Weekday, WorkingHours } from "../../types/index.js";
+import type { BusinessType, SttStrategy, ToneOfVoice, Weekday, WorkingHours } from "../../types/index.js";
 import { requireTenantAdmin, requireTenantAuth } from "../middleware/auth.js";
 import { threatShieldRateLimiter } from "../middleware/security.js";
 
@@ -59,6 +70,7 @@ const VALID_BUSINESS_TYPES: readonly BusinessType[] = [
   "general_services",
 ];
 const VALID_TONES_OF_VOICE: readonly ToneOfVoice[] = ["formal", "friendly"];
+const VALID_STT_STRATEGIES: readonly SttStrategy[] = ["deepgram_only", "whisper_hybrid"];
 const WEEKDAYS: readonly Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -68,6 +80,10 @@ function isBusinessType(value: unknown): value is BusinessType {
 
 function isToneOfVoice(value: unknown): value is ToneOfVoice {
   return typeof value === "string" && (VALID_TONES_OF_VOICE as readonly string[]).includes(value);
+}
+
+function isSttStrategy(value: unknown): value is SttStrategy {
+  return typeof value === "string" && (VALID_STT_STRATEGIES as readonly string[]).includes(value);
 }
 
 /** Validates the full WorkingHours shape — every weekday key present, each value either null (closed) or a well-formed HH:MM start/end pair with start < end. Rejects the whole update rather than silently dropping a malformed day. */
@@ -103,6 +119,7 @@ interface TenantSettingsPatchBody {
   publicPhoneNumber?: string | null;
   address?: string | null;
   toneOfVoice?: string;
+  sttStrategy?: string;
 }
 
 tenantSettingsRouter.patch(
@@ -235,6 +252,17 @@ tenantSettingsRouter.patch(
         patch.toneOfVoice = body.toneOfVoice;
       }
 
+      // Free for every plan — a latency/cost vs accuracy tradeoff the
+      // tenant chooses deliberately, not something Starter/VIP status
+      // should decide for them (see the migration's own comment).
+      if (body.sttStrategy !== undefined) {
+        if (!isSttStrategy(body.sttStrategy)) {
+          res.status(400).json({ error: `sttStrategy must be one of: ${VALID_STT_STRATEGIES.join(", ")}.` });
+          return;
+        }
+        patch.sttStrategy = body.sttStrategy;
+      }
+
       const tenant = await updateTenant(req.params.tenantId, patch);
       res.json(tenant);
     } catch (error) {
@@ -361,6 +389,129 @@ tenantSettingsRouter.post(
       });
       res.status(201).json(lead);
     } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** GET /knowledge-gaps — backs the "Suggested FAQs from real questions" panel on FaqsPage.tsx (see promptBuilder.ts's KNOWLEDGE_GAP_MARKER for how these get created). */
+tenantSettingsRouter.get("/knowledge-gaps", requireTenantAuth, async (req: Request<{ tenantId: string }>, res: Response, next: NextFunction) => {
+  try {
+    const gaps = await listKnowledgeGapsForTenant(req.params.tenantId);
+    res.json(gaps);
+  } catch (error) {
+    next(error);
+  }
+});
+
+interface CallTranscriptsQuery {
+  needsFollowUpOnly?: string;
+}
+
+/** GET /call-transcripts — backs the new /admin/calls page (CallLogsPage.tsx), the first surface in this app that lets a tenant actually see their past calls. */
+tenantSettingsRouter.get(
+  "/call-transcripts",
+  requireTenantAuth,
+  async (req: Request<{ tenantId: string }, unknown, unknown, CallTranscriptsQuery>, res: Response, next: NextFunction) => {
+    try {
+      const transcripts = await listCallTranscripts(req.params.tenantId, { needsFollowUpOnly: req.query.needsFollowUpOnly === "true" });
+      res.json(transcripts);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** GET /usage — backs the Settings "Usage" tab: Groq/ElevenLabs/Twilio consumption over the last 30 days, so a tenant's real cost is visible instead of invisible until a provider bill arrives (023_voice_improvements.sql). */
+tenantSettingsRouter.get("/usage", requireTenantAuth, async (req: Request<{ tenantId: string }>, res: Response, next: NextFunction) => {
+  try {
+    const summary = await getUsageSummary(req.params.tenantId, 30);
+    res.json(summary);
+  } catch (error) {
+    next(error);
+  }
+});
+
+interface AvailableNumbersQuery {
+  countryCode?: string;
+  areaCode?: string;
+}
+
+/**
+ * GET /phone/available-numbers — read-only Twilio search, free to call.
+ * Deliberately admin-gated even though it costs nothing, for consistency
+ * with the purchase route right below it (both are "manage this tenant's
+ * phone setup" actions) rather than splitting that policy across the two.
+ */
+tenantSettingsRouter.get(
+  "/phone/available-numbers",
+  requireTenantAuth,
+  requireTenantAdmin,
+  async (req: Request<{ tenantId: string }, unknown, unknown, AvailableNumbersQuery>, res: Response, next: NextFunction) => {
+    try {
+      const routing = await getTenantTwilioRouting(req.params.tenantId);
+      if (!routing) {
+        res.status(404).json({ error: "Unknown tenant." });
+        return;
+      }
+      const credentials = await resolveTwilioCredentials(req.params.tenantId);
+      const numbers = await searchAvailableTwilioNumbers(req.query.countryCode ?? "US", req.query.areaCode, credentials);
+      res.json(numbers satisfies AvailableTwilioNumber[]);
+    } catch (error) {
+      if (error instanceof TwilioDeliveryError) {
+        res.status(502).json({ error: "TWILIO_SEARCH_FAILED", message: error.message });
+        return;
+      }
+      next(error);
+    }
+  },
+);
+
+interface ProvisionNumberBody {
+  phoneNumber?: string;
+  /** Required, literal `true` — a redundant confirmation gate on top of whatever the frontend already asks, since this is the one route in this app that spends real, recurring money the instant it succeeds. */
+  confirm?: boolean;
+}
+
+/**
+ * POST /phone/provision — REAL MONEY. Buys `phoneNumber` on this tenant's
+ * (or the platform's shared) Twilio account, points its VoiceUrl at this
+ * app's own inbound webhook, and saves it as the tenant's
+ * twilio_phone_number. There is no undo route — cancelling a purchased
+ * number is a manual Twilio-console action, deliberately not automated
+ * here, so a bug in this route can't also auto-release a number a tenant
+ * is actively depending on.
+ */
+tenantSettingsRouter.post(
+  "/phone/provision",
+  requireTenantAuth,
+  requireTenantAdmin,
+  threatShieldRateLimiter,
+  async (req: Request<{ tenantId: string }, unknown, ProvisionNumberBody>, res: Response, next: NextFunction) => {
+    try {
+      const { phoneNumber, confirm } = req.body;
+      if (!phoneNumber || typeof phoneNumber !== "string") {
+        res.status(400).json({ error: "phoneNumber is required." });
+        return;
+      }
+      if (confirm !== true) {
+        res.status(400).json({ error: "This purchases a real phone number and starts billing immediately — resend with confirm: true." });
+        return;
+      }
+
+      const credentials = await resolveTwilioCredentials(req.params.tenantId);
+      const webhookOverride = process.env["PUBLIC_WEBHOOK_BASE_URL"];
+      const host = webhookOverride ? webhookOverride.replace(/\/$/, "") : `${req.protocol}://${req.get("host") ?? ""}`;
+      const voiceWebhookUrl = `${host}/api/v1/voice/incoming`;
+
+      const purchased = await purchaseTwilioNumber(phoneNumber, voiceWebhookUrl, credentials);
+      await setTenantTwilioPhoneNumber(req.params.tenantId, purchased.phoneNumber);
+      res.json({ phoneNumber: purchased.phoneNumber, sid: purchased.sid });
+    } catch (error) {
+      if (error instanceof TwilioDeliveryError) {
+        res.status(502).json({ error: "TWILIO_PURCHASE_FAILED", message: error.message });
+        return;
+      }
       next(error);
     }
   },

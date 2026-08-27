@@ -15,6 +15,7 @@ import { ToastProvider } from "./components/Toast.js";
 import { AuthProvider } from "./context/AuthContext.js";
 import AnalyticsPage from "./pages/AnalyticsPage.js";
 import CalendarPage from "./pages/CalendarPage.js";
+import CallLogsPage from "./pages/CallLogsPage.js";
 import ClientsPage from "./pages/ClientsPage.js";
 import FaqsPage from "./pages/FaqsPage.js";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage.js";
@@ -66,6 +67,7 @@ export default function App(): JSX.Element {
             <Route element={<DashboardLayout />}>
               <Route path="/admin/dashboard" element={<OverviewPage />} />
               <Route path="/admin/calendar" element={<CalendarPage />} />
+              <Route path="/admin/calls" element={<CallLogsPage />} />
               <Route path="/admin/clients" element={<ClientsPage />} />
               <Route path="/admin/analytics" element={<AnalyticsPage />} />
               <Route path="/admin/services" element={<ServicesPage />} />

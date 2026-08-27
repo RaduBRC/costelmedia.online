@@ -32,7 +32,7 @@
  */
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
-import { getTenantById } from "../../db/supabase.js";
+import { getTenantById, insertServiceFailure, insertUsageEvent } from "../../db/supabase.js";
 import {
   describeElevenLabsStatus,
   ElevenLabsRequestError,
@@ -91,9 +91,13 @@ ttsRouter.post(
       let upstream: Awaited<ReturnType<typeof fetchElevenLabsSpeechStream>>;
       try {
         upstream = await fetchElevenLabsSpeechStream(text, "mp3_44100_128", voiceId);
+        if (req.tenantId) {
+          void insertUsageEvent({ tenantId: req.tenantId, service: "elevenlabs_tts", quantity: text.length, unit: "characters" });
+        }
       } catch (error) {
         if (error instanceof ElevenLabsTimeoutError) {
           console.error("ElevenLabs TTS request timed out:", error.message);
+          void insertServiceFailure({ tenantId: req.tenantId ?? null, service: "elevenlabs", errorMessage: `Timeout: ${error.message}` });
           res.status(504).json({ error: "ELEVENLABS_TIMEOUT", message: "ElevenLabs did not respond in time." });
           return;
         }
@@ -107,6 +111,11 @@ ttsRouter.post(
           // separately.
           console.error(`[ElevenLabs API] Request failed — HTTP ${error.status}: ${describeElevenLabsStatus(error.status)}`);
           console.error(`[ElevenLabs API] Response body: ${error.message}`);
+          void insertServiceFailure({
+            tenantId: req.tenantId ?? null,
+            service: "elevenlabs",
+            errorMessage: `HTTP ${error.status}: ${describeElevenLabsStatus(error.status)} — ${error.message}`,
+          });
           res.status(502).json({
             error: "ELEVENLABS_FAILED",
             message: "ElevenLabs API failed",

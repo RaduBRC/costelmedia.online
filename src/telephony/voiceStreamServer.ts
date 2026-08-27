@@ -22,7 +22,7 @@ import type { RawData, WebSocket } from "ws";
 import type { Server as HttpServer, IncomingMessage } from "node:http";
 import { processClientMessage } from "../agent/groqAgent.js";
 import { getVoiceGreeting } from "../agent/promptBuilder.js";
-import { getTenantById, listServices } from "../db/supabase.js";
+import { getTenantById, insertServiceFailure, insertUsageEvent, insertVoiceCallMetric, listServices } from "../db/supabase.js";
 import {
   appendTranscriptTurn,
   beginAgentSpeech,
@@ -32,6 +32,7 @@ import {
   getCallSession,
   interruptAgentSpeech,
   recordBookingOutcome,
+  recordToneSignal,
 } from "./callSession.js";
 import { openDeepgramStream } from "./deepgramStt.js";
 import type { DeepgramStreamHandle } from "./deepgramStt.js";
@@ -46,6 +47,10 @@ import { rawDataToUtf8String } from "./rawData.js";
 import { transcribeWithWhisper } from "./whisperStt.js";
 import type { ConversationTurn, Service, Tenant } from "../types/index.js";
 import { evaluateThreat, GENERIC_BLOCKED_REPLY } from "../security/threatSentinel.js";
+
+/** Appended to the reply on the turn a call crosses the sustained-frustration threshold (callSession.ts's recordToneSignal) — offers a human follow-up without ending the call outright, since the caller may still want to keep going. */
+const ESCALATION_OFFER_MESSAGE =
+  "Îmi pare rău că nu v-am putut ajuta atât de repede pe cât aș fi vrut — am notat solicitarea dumneavoastră și un coleg vă va contacta în cel mai scurt timp.";
 
 const VOICE_STREAM_PATH = "/api/v1/voice/stream";
 // Fallback only for the edge case where the tenant lookup itself fails
@@ -179,13 +184,22 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
   // anything if the fetch fails.
   let cachedServices: Service[] = [];
 
-  async function speak(activeStreamSid: string, text: string): Promise<void> {
+  /** `onFirstByte`, if given, fires once — the moment the first audio chunk actually arrives from ElevenLabs — for voice_call_metrics' ttsFirstByteLatencyMs (see onUtteranceEnd below). */
+  async function speak(activeStreamSid: string, text: string, onFirstByte?: () => void): Promise<void> {
     const controller = beginAgentSpeech(activeStreamSid);
     if (!controller) return; // Session already ended (e.g. caller hung up mid-processing).
+    let firstByteSeen = false;
+    if (cachedTenant) {
+      void insertUsageEvent({ tenantId: cachedTenant.id, service: "elevenlabs_tts", quantity: text.length, unit: "characters" });
+    }
     try {
       await streamTextToSpeech(
         text,
         (chunk) => {
+          if (!firstByteSeen) {
+            firstByteSeen = true;
+            onFirstByte?.();
+          }
           if (ws.readyState === ws.OPEN) {
             sendTwilioMedia(ws, activeStreamSid, chunk);
           }
@@ -200,15 +214,21 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
       // still logs this too, but only as an opaque Error object, which
       // isn't enough to tell "wrong key" apart from "ElevenLabs is down"
       // apart from "not configured at all" at a glance in production logs.
+      // Also persisted to service_failures (not just console.error) so a
+      // super admin can actually SEE this happened without live-tailing
+      // server logs — exactly the visibility gap that let the
+      // ELEVENLABS_API_KEY drift between environments go unnoticed for a
+      // while earlier in this project.
       if (error instanceof ElevenLabsRequestError) {
-        console.error(
-          `[ElevenLabs API] Call ${activeStreamSid}: TTS request failed — HTTP ${error.status}: ${describeElevenLabsStatus(error.status)}`,
-        );
-        console.error(`[ElevenLabs API] Call ${activeStreamSid}: Response body: ${error.message}`);
+        const message = `HTTP ${error.status}: ${describeElevenLabsStatus(error.status)} — ${error.message}`;
+        console.error(`[ElevenLabs API] Call ${activeStreamSid}: TTS request failed — ${message}`);
+        void insertServiceFailure({ tenantId: cachedTenant?.id ?? null, service: "elevenlabs", errorMessage: message });
       } else if (error instanceof ElevenLabsTimeoutError) {
         console.error(`[ElevenLabs API] Call ${activeStreamSid}: TTS request timed out — ${error.message}`);
+        void insertServiceFailure({ tenantId: cachedTenant?.id ?? null, service: "elevenlabs", errorMessage: `Timeout: ${error.message}` });
       } else if (error instanceof ElevenLabsNotConfiguredError) {
         console.error(`[ElevenLabs API] Call ${activeStreamSid}: TTS not configured — ${error.message}`);
+        void insertServiceFailure({ tenantId: cachedTenant?.id ?? null, service: "elevenlabs", errorMessage: `Not configured: ${error.message}` });
       }
       throw error; // Re-thrown for the existing caller-side catches (greeting / handleUtterance) to handle as before.
     } finally {
@@ -223,8 +243,14 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
     }
   }
 
-  async function handleUtterance(tenantId: string, callerPhone: string, transcript: string): Promise<void> {
-    if (!streamSid) return;
+  /** Timing for the just-completed turn, or null if nothing billable/measurable happened (blocked by Threat Sentinel, or the turn errored before either the LLM or TTS step) — see onUtteranceEnd's voice_call_metrics insert. */
+  interface TurnTiming {
+    llmLatencyMs: number;
+    ttsFirstByteLatencyMs: number | null;
+  }
+
+  async function handleUtterance(tenantId: string, callerPhone: string, transcript: string): Promise<TurnTiming | null> {
+    if (!streamSid) return null;
     const activeStreamSid = streamSid;
 
     // Captured before appending this turn's own caller line below, so
@@ -254,19 +280,37 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
         console.warn(`Threat Sentinel blocked a voice utterance from ${clientIp} (category=${threat.category}, score=${threat.score}).`);
         appendTranscriptTurn(activeStreamSid, "agent", GENERIC_BLOCKED_REPLY);
         await speak(activeStreamSid, GENERIC_BLOCKED_REPLY);
-        return;
+        return null;
       }
 
+      const llmStartedAt = Date.now();
       const result = await processClientMessage(tenantId, callerPhone, transcript, "ai_voice", priorTurns);
-      appendTranscriptTurn(activeStreamSid, "agent", result.reply);
+      const llmLatencyMs = Date.now() - llmStartedAt;
+
+      // Sustained-frustration escalation (callSession.ts) — fires true
+      // exactly once, on the turn that crosses the threshold. Appended to
+      // this turn's own reply rather than spoken as a separate follow-up
+      // utterance, so the caller hears it as one natural continuation,
+      // not an abrupt second thing bolted on.
+      const justEscalated = recordToneSignal(activeStreamSid, result.toneAssessment);
+      const replyToSpeak = justEscalated ? `${result.reply} ${ESCALATION_OFFER_MESSAGE}` : result.reply;
+
+      appendTranscriptTurn(activeStreamSid, "agent", replyToSpeak);
       recordBookingOutcome(activeStreamSid, {
         ...(result.createdAppointmentId ? { createdAppointmentId: result.createdAppointmentId } : {}),
         ...(result.cancelledAppointmentId ? { cancelledAppointmentId: result.cancelledAppointmentId } : {}),
       });
 
-      await speak(activeStreamSid, result.reply);
+      let ttsFirstByteLatencyMs: number | null = null;
+      const ttsStartedAt = Date.now();
+      await speak(activeStreamSid, replyToSpeak, () => {
+        ttsFirstByteLatencyMs = Date.now() - ttsStartedAt;
+      });
+
+      return { llmLatencyMs, ttsFirstByteLatencyMs };
     } catch (error) {
       console.error(`Voice turn failed for call stream ${activeStreamSid}:`, error);
+      return null;
     }
   }
 
@@ -359,30 +403,66 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
           if (turnInFlight || (utteranceBuffer.trim().length === 0 && utteranceAudioChunks.length === 0)) {
             return;
           }
+          const turnStartedAt = Date.now();
           const deepgramTranscript = utteranceBuffer.trim();
           const audioSnapshot = utteranceAudioChunks.length > 0 ? Buffer.concat(utteranceAudioChunks) : null;
           utteranceBuffer = "";
           utteranceAudioChunks = [];
           turnInFlight = true;
           void (async () => {
-            // Whisper is the actual STT engine now — Deepgram's own text
-            // is only the fallback for when Whisper can't produce one
-            // (not configured, request failed/timed out, or the buffered
-            // audio really was silence per its RMS gate) or when there's
-            // no tenant yet to build a prompt for. Never both silently
-            // dropped: if Whisper comes back empty, Deepgram's transcript
-            // (if any) still carries the turn.
+            // Whisper only runs when this tenant opted into the hybrid
+            // strategy (tenants.stt_strategy, free for every plan — see
+            // tenantSettings.ts) — it's a real extra network round-trip on
+            // top of Deepgram's own real-time transcript, which is exactly
+            // the "the agent takes too long to respond" tradeoff a tenant
+            // should choose deliberately, not have forced on them.
+            // Deepgram's own text is the fallback either way: when Whisper
+            // is off, when it can't produce a transcript (not configured,
+            // request failed/timed out, the buffered audio really was
+            // silence per its RMS gate), or when there's no tenant yet to
+            // build a prompt for. Never both silently dropped: if Whisper
+            // comes back empty, Deepgram's transcript (if any) still
+            // carries the turn.
             let transcript = deepgramTranscript;
-            if (cachedTenant && audioSnapshot) {
+            let whisperUsed = false;
+            let whisperLatencyMs: number | null = null;
+            if (cachedTenant?.sttStrategy === "whisper_hybrid" && audioSnapshot) {
+              whisperUsed = true;
+              // mu-law is exactly 1 byte/sample at Whisper's 8kHz — real
+              // audio duration, not an estimate.
+              void insertUsageEvent({ tenantId: cachedTenant.id, service: "groq_whisper", quantity: audioSnapshot.length / 8000, unit: "seconds" });
+              const whisperStartedAt = Date.now();
               const whisperTranscript = await transcribeWithWhisper(audioSnapshot, cachedTenant, cachedServices);
+              whisperLatencyMs = Date.now() - whisperStartedAt;
               if (whisperTranscript) {
                 transcript = whisperTranscript;
               }
             }
             if (!transcript) {
-              return; // Both Whisper and Deepgram came up empty — nothing to act on this turn.
+              return; // Both Whisper (if used) and Deepgram came up empty — nothing to act on this turn.
             }
-            await handleUtterance(tenantId, callerPhone, transcript);
+
+            const timing = await handleUtterance(tenantId, callerPhone, transcript);
+
+            // Best-effort, fire-and-forget — see insertVoiceCallMetric's
+            // own header comment. Skipped entirely if the tenant lookup
+            // never resolved (tenant_id is required on this table); that's
+            // an edge case rare enough not to need a "log with no tenant"
+            // path the way service_failures has one.
+            if (cachedTenant) {
+              void insertVoiceCallMetric({
+                tenantId: cachedTenant.id,
+                streamSid: sid,
+                sttStrategy: cachedTenant.sttStrategy,
+                whisperUsed,
+                whisperLatencyMs,
+                llmLatencyMs: timing?.llmLatencyMs ?? null,
+                ttsFirstByteLatencyMs: timing?.ttsFirstByteLatencyMs ?? null,
+                totalTurnLatencyMs: Date.now() - turnStartedAt,
+              }).catch((error: unknown) => {
+                console.error(`Failed to record voice call metric for call ${sid}:`, error);
+              });
+            }
           })().finally(() => {
             turnInFlight = false;
           });

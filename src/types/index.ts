@@ -14,6 +14,9 @@ export type ToneOfVoice = "formal" | "friendly";
 /** Starter (self-serve, hard-capped defaults) vs VIP (manually onboarded, custom integrations unlocked) — see 022_onboarding_plans_and_leads.sql and src/api/routes/superAdmin.ts. */
 export type TenantPlan = "starter" | "vip";
 
+/** deepgram_only (fast/cheap) vs whisper_hybrid (Deepgram for real-time turn-detection + Whisper for the actual transcription — higher accuracy, one extra network round-trip per turn). See src/telephony/voiceStreamServer.ts. */
+export type SttStrategy = "deepgram_only" | "whisper_hybrid";
+
 export type AppointmentStatus = "confirmed" | "cancelled" | "rescheduled";
 
 /** Which surface actually created the appointment — what makes the "AI agent efficiency" analytics metric a real measurement. */
@@ -56,6 +59,8 @@ export interface Tenant {
   plan: TenantPlan;
   /** Tenant-specific override of promptBuilder.ts's static per-business-type required-booking-fields list — null means "use the static table". Set by the auto-configurator (src/agent/autoConfigurator.ts) or left null for a manually-onboarded tenant. */
   requiredBookingFields: string[] | null;
+  /** Free (not plan-gated) opt-in to the Whisper hybrid STT pipeline — a latency/cost vs accuracy tradeoff the tenant chooses, not one Starter/VIP status should decide for them. */
+  sttStrategy: SttStrategy;
 }
 
 /** A "Request VIP Integration" lead (022_onboarding_plans_and_leads.sql) — manually worked by a human, not a self-serve upgrade. */
@@ -67,6 +72,50 @@ export interface VipLead {
   contactEmail: string | null;
   contactPhone: string | null;
   status: "new" | "contacted" | "won" | "lost";
+  createdAt: string;
+}
+
+/** A caller question neither the tenant's own FAQs nor the niche fallback knowledge base covered (023_voice_improvements.sql) — a real recurring one is exactly what should become a real FAQ. See promptBuilder.ts's KNOWLEDGE_GAP_MARKER. */
+export interface KnowledgeGap {
+  id: string;
+  tenantId: string;
+  businessType: BusinessType;
+  question: string;
+  channel: BookingChannel;
+  createdAt: string;
+}
+
+/** Per-turn latency breakdown for one voice-call utterance (023_voice_improvements.sql) — the "why is this call slow" visibility the pipeline never had. */
+export interface VoiceCallMetric {
+  id: string;
+  tenantId: string;
+  streamSid: string;
+  sttStrategy: SttStrategy;
+  whisperUsed: boolean;
+  whisperLatencyMs: number | null;
+  llmLatencyMs: number | null;
+  ttsFirstByteLatencyMs: number | null;
+  totalTurnLatencyMs: number | null;
+  elevenlabsFallbackUsed: boolean;
+  createdAt: string;
+}
+
+/** A persisted TTS/STT/LLM/Twilio failure (023_voice_improvements.sql) — previously only ever visible in a live server console. */
+export interface ServiceFailure {
+  id: string;
+  tenantId: string | null;
+  service: "elevenlabs" | "whisper" | "deepgram" | "groq" | "twilio";
+  errorMessage: string;
+  createdAt: string;
+}
+
+/** One billable-ish usage event (023_voice_improvements.sql) — Groq tokens, ElevenLabs characters, Whisper audio seconds, Twilio messages — so a tenant's real usage/cost is visible instead of invisible until a provider bill arrives. */
+export interface UsageEvent {
+  id: string;
+  tenantId: string;
+  service: "groq_llm" | "groq_whisper" | "elevenlabs_tts" | "twilio_sms" | "twilio_voice";
+  quantity: number;
+  unit: string;
   createdAt: string;
 }
 
@@ -238,6 +287,8 @@ export interface CallTranscriptRecord {
   callSid: string;
   transcript: string;
   durationSeconds: number;
+  /** Set when the caller showed sustained frustration during the call (callSession.ts) — a human should follow up. */
+  needsFollowUp: boolean;
   createdAt: string;
 }
 

@@ -17,6 +17,8 @@ const updateClientToneProfile = vi.fn<() => Promise<ClientProfile>>();
 const insertConversationLog = vi.fn<() => Promise<void>>();
 const getAppointmentById = vi.fn<() => Promise<Appointment | null>>();
 const updateAppointmentStatus = vi.fn<() => Promise<Appointment>>();
+const insertKnowledgeGap = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+const insertUsageEvent = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 // Defaults to empty (no services configured) — formatActiveServicesList
 // (promptBuilder.ts) handles that case explicitly; individual tests
 // override via listServices.mockResolvedValueOnce(...) where the
@@ -35,6 +37,8 @@ vi.mock("../src/db/supabase.js", () => ({
   updateAppointmentStatus: (...args: unknown[]) => updateAppointmentStatus(...(args as [])),
   listServices: (...args: unknown[]) => listServices(...(args as [])),
   listFaqs: (...args: unknown[]) => listFaqs(...(args as [])),
+  insertKnowledgeGap: (...args: unknown[]) => insertKnowledgeGap(...(args as [])),
+  insertUsageEvent: (...args: unknown[]) => insertUsageEvent(...(args as [])),
 }));
 
 const getAvailableSlots = vi.fn<() => Promise<Slot[]>>();
@@ -84,6 +88,7 @@ const fixtureTenant: Tenant = {
   toneOfVoice: "friendly",
   plan: "starter",
   requiredBookingFields: null,
+  sttStrategy: "deepgram_only",
 };
 
 function fixtureClientProfile(overrides: Partial<ClientProfile> = {}): ClientProfile {
@@ -164,6 +169,8 @@ beforeEach(() => {
   insertConversationLog.mockReset().mockResolvedValue(undefined);
   getAppointmentById.mockReset();
   updateAppointmentStatus.mockReset();
+  insertKnowledgeGap.mockReset().mockResolvedValue(undefined);
+  insertUsageEvent.mockReset().mockResolvedValue(undefined);
 
   getAvailableSlots.mockReset();
   bookSlot.mockReset();
@@ -323,5 +330,44 @@ describe("Scenario C: a legal_services tenant gets a legal-specific prompt, not 
     // ...and no clinic-specific language leaked in for a tenant that isn't one.
     expect(systemMessage).not.toContain("medical clinic");
     expect(systemMessage).not.toContain("Never diagnose");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario D — a genuine "I don't know" fallback logs a knowledge gap and
+// never leaks promptBuilder.ts's KNOWLEDGE_GAP_MARKER to the client. Proves
+// the whole mechanism end to end: the model producing the marker, groqAgent.ts
+// detecting and stripping it, and the real question getting logged.
+// ---------------------------------------------------------------------------
+
+describe("Scenario D: an unanswered question logs a knowledge gap and never leaks the marker", () => {
+  it("strips the marker from the reply and logs the client's real question", async () => {
+    const { KNOWLEDGE_GAP_MARKER } = await import("../src/agent/promptBuilder.js");
+    fetchQueue.push(
+      toneResponse({ urgency: 2, formality: 3, sentiment: "neutral", toneNote: "Asking something unusual." }),
+      textResponse(`Îmi pare rău, nu am această informație momentan, dar cineva vă va contacta. ${KNOWLEDGE_GAP_MARKER}`),
+    );
+
+    const result = await processClientMessage(TENANT_ID, CLIENT_PHONE, "Faceți implanturi dentare din titan pur?");
+
+    expect(result.reply).not.toContain(KNOWLEDGE_GAP_MARKER);
+    expect(result.reply).toContain("cineva vă va contacta");
+    expect(insertKnowledgeGap).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      businessType: fixtureTenant.businessType,
+      question: "Faceți implanturi dentare din titan pur?",
+      channel: "ai_chat",
+    });
+  });
+
+  it("never calls insertKnowledgeGap for a normal, fully-answered reply", async () => {
+    fetchQueue.push(
+      toneResponse({ urgency: 2, formality: 3, sentiment: "neutral", toneNote: "Normal question." }),
+      textResponse("Sigur, avem loc mâine la ora 10."),
+    );
+
+    await processClientMessage(TENANT_ID, CLIENT_PHONE, "Aveți loc mâine?");
+
+    expect(insertKnowledgeGap).not.toHaveBeenCalled();
   });
 });

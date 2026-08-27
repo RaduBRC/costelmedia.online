@@ -73,17 +73,23 @@ export const DEFAULT_VOICE_ID = "GRHbHyXbUO8nF4YexVTa";
 
 export const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
 
-// Retuned for conversational Romanian after live listening tests flagged
-// the previous values (stability 0.55, style 0.35) as reading flat/robotic
-// on ro-RO sessions specifically — multilingual_v2's Romanian output is
-// more sensitive to these knobs than its English output was. Lower
-// stability (0.40) allows more natural pitch/pace variation between
-// sentences instead of a clamped, monotone delivery; lower style (0.15)
-// pulls back from the previous value's exaggeration, which is what was
-// reading as unnatural/over-acted in Romanian even though it sounded fine
-// in English. similarity_boost unchanged (0.80 was already right — keeps
-// the timbre close to the source voice).
-export const VOICE_SETTINGS = { stability: 0.4, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true };
+// Second retuning pass, after live call feedback that 0.40/0.15 (this
+// file's previous values) introduced audible stutter/glitch artifacts on
+// some Romanian phrases while still not sounding expressive enough.
+// That's consistent with how ElevenLabs' own parameters actually behave,
+// not a contradiction to chase by pushing stability lower still: low
+// `stability` trades consistency for expressiveness, and multilingual_v2
+// is already less stable on Romanian than on English (it has far less
+// Romanian training data) — pushing stability even lower stacks two
+// instability sources and shows up as word repeats/glitches, which reads
+// as stuttering. The right lever for "more intonation" without more
+// instability is `style` (expressiveness/emotional inflection), not a
+// lower `stability`. So: stability raised back up somewhat (0.40 → 0.48 —
+// still below the original 0.55 that read as flat, but enough headroom
+// above the stutter-prone 0.40 to be reliable) and style raised
+// (0.15 → 0.30) to add real intonation through the parameter actually
+// meant for that. similarity_boost unchanged (0.80 was already right).
+export const VOICE_SETTINGS = { stability: 0.48, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true };
 
 /** Thrown when neither a tenant-specific nor the env var default voice/key is available. Distinct from ElevenLabsRequestError so callers can return a fast, specific "not configured" response instead of a generic failure. */
 export class ElevenLabsNotConfiguredError extends Error {}

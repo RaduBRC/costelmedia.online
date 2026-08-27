@@ -50,6 +50,19 @@ function isResultsMessage(value: { type: string }): value is DeepgramResultsMess
  * audio transcoding is needed — inbound Twilio "media" payloads are
  * forwarded to `sendAudio` as-is.
  */
+// How long the caller has to go silent before Deepgram considers their
+// turn over. Lowered from the original 300/1000 after live feedback that
+// the agent waited noticeably too long to respond — 1000ms of required
+// silence reads as a real, human-perceptible pause on a phone call, on
+// top of Deepgram's own endpointing delay. Not dropped further than this:
+// below roughly 500ms, a caller's normal mid-sentence pause ("da, deci...
+// <breath> ...aș vrea") risks being read as the end of their turn,
+// which would be a worse regression (the agent talking over them) than
+// the slower-response complaint this fixes. Both overridable via env var
+// without a code change if real call data says otherwise.
+const ENDPOINTING_MS = Number(process.env["DEEPGRAM_ENDPOINTING_MS"] ?? 250);
+const UTTERANCE_END_MS = Number(process.env["DEEPGRAM_UTTERANCE_END_MS"] ?? 600);
+
 export function openDeepgramStream(callbacks: DeepgramStreamCallbacks): DeepgramStreamHandle {
   const apiKey = process.env["DEEPGRAM_API_KEY"];
   if (!apiKey) {
@@ -59,7 +72,7 @@ export function openDeepgramStream(callbacks: DeepgramStreamCallbacks): Deepgram
 
   const url =
     `${DEEPGRAM_LISTEN_URL}?encoding=mulaw&sample_rate=8000&channels=1` +
-    `&interim_results=true&endpointing=300&utterance_end_ms=1000&vad_events=true&punctuate=true` +
+    `&interim_results=true&endpointing=${ENDPOINTING_MS}&utterance_end_ms=${UTTERANCE_END_MS}&vad_events=true&punctuate=true` +
     `&model=${encodeURIComponent(model)}`;
 
   const socket = new WebSocket(url, { headers: { Authorization: `Token ${apiKey}` } });

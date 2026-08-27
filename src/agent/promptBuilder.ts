@@ -7,6 +7,21 @@ import { formatNicheFallbackKnowledge } from "./nicheKnowledgeBase.js";
 import type { BookingChannel, BusinessType, ClientProfile, Faq, Service, Tenant, ToneAssessment, ToneOfVoice } from "../types/index.js";
 
 /**
+ * Appended by the model to the very end of a reply that's a genuine "I
+ * don't know" fallback (neither the tenant's own FAQs nor the niche
+ * fallback knowledge base covered the question) — groqAgent.ts detects
+ * and strips this before the reply ever reaches the client, then logs
+ * the client's actual question to knowledge_gaps
+ * (023_voice_improvements.sql) so a real recurring question becomes a
+ * real FAQ instead of silently vanishing every time. Deliberately a
+ * distinctive bracketed token, not natural language — regex/substring
+ * matching on phrasing variations ("nu știu", "nu am această informație",
+ * "din păcate nu pot...") would be far less reliable than one exact
+ * string the model is told to reproduce verbatim.
+ */
+export const KNOWLEDGE_GAP_MARKER = "[FARA_RASPUNS]";
+
+/**
  * One tailored rule block per vertical — this Record<BusinessType, string>
  * is itself what makes cross-vertical contamination structurally
  * impossible: buildSystemPrompt only ever injects
@@ -397,6 +412,15 @@ export function buildSystemPrompt(
   // real tenant FAQ and is never presented as this specific business's
   // confirmed policy.
   lines.push(formatNicheFallbackKnowledge(tenant.businessType));
+
+  lines.push(
+    "If — and only if — the client's question is genuinely not answered by this business's own FAQs above OR " +
+      "the general industry knowledge base above, say so honestly, offer to have someone follow up, and end " +
+      `your reply with the exact literal text "${KNOWLEDGE_GAP_MARKER}" as its own final token (it will never ` +
+      "be shown or read aloud to the client — it's stripped automatically before they see or hear anything). " +
+      "Never use this marker for a question you actually answered, and never mention or explain the marker " +
+      "itself to the client.",
+  );
 
   if (channel === "ai_voice") {
     lines.push(VOICE_MANNERS_BLOCK);

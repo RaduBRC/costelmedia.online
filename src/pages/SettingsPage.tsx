@@ -12,19 +12,21 @@ import { Calendar, Loader2, Lock, Play, Save, Unlink } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import IntegrationsSection from "../components/IntegrationsSection.js";
 import PhoneSetupSection from "../components/PhoneSetupSection.js";
+import UsageSection from "../components/UsageSection.js";
 import { disconnectGoogleCalendar, getGoogleCalendarConsentUrl, getGoogleCalendarStatus, listVoices, updateTenant } from "../lib/api.js";
 import type { ElevenLabsVoice, GoogleCalendarConnectionStatus } from "../lib/api.js";
 import { useToast } from "../components/Toast.js";
 import { useAuth } from "../context/AuthContext.js";
 import { useDashboardData } from "../hooks/useDashboardData.js";
-import type { BusinessType, ToneOfVoice, Weekday, WorkingHours } from "../types/index.js";
+import type { BusinessType, SttStrategy, ToneOfVoice, Weekday, WorkingHours } from "../types/index.js";
 
-type SettingsTab = "general" | "phone" | "integrations";
+type SettingsTab = "general" | "phone" | "integrations" | "usage";
 
 const SETTINGS_TABS: { value: SettingsTab; label: string }[] = [
   { value: "general", label: "General" },
   { value: "phone", label: "Phone Setup" },
   { value: "integrations", label: "Integrations" },
+  { value: "usage", label: "Usage" },
 ];
 
 /**
@@ -55,6 +57,16 @@ const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
 const TONES_OF_VOICE: { value: ToneOfVoice; label: string; description: string }[] = [
   { value: "friendly", label: "Friendly", description: "Warm, conversational, contractions and a light emoji are fine." },
   { value: "formal", label: "Formal", description: "Polished, professional language — no slang, no emoji." },
+];
+
+/** Free for every plan — see tenants.stt_strategy's own migration comment for why this isn't Starter/VIP-gated. */
+const STT_STRATEGIES: { value: SttStrategy; label: string; description: string }[] = [
+  { value: "deepgram_only", label: "Fast (recommended)", description: "Quickest replies. Great accuracy for clear speech and common phrasing." },
+  {
+    value: "whisper_hybrid",
+    label: "High accuracy",
+    description: "Adds a second transcription pass for better accuracy on accents/background noise — replies take a bit longer.",
+  },
 ];
 
 const WEEKDAYS: { value: Weekday; label: string }[] = [
@@ -230,6 +242,7 @@ export default function SettingsPage(): JSX.Element {
   const [systemPromptOverride, setSystemPromptOverride] = useState("");
   const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState("");
   const [toneOfVoice, setToneOfVoice] = useState<ToneOfVoice>("friendly");
+  const [sttStrategy, setSttStrategy] = useState<SttStrategy>("deepgram_only");
 
   // Seed local form state from the loaded tenant exactly once — after
   // that, this form owns the fields until Save, so a background refetch
@@ -248,6 +261,7 @@ export default function SettingsPage(): JSX.Element {
     setSystemPromptOverride(tenant.systemPromptOverride ?? "");
     setElevenlabsVoiceId(tenant.elevenlabsVoiceId ?? "");
     setToneOfVoice(tenant.toneOfVoice);
+    setSttStrategy(tenant.sttStrategy);
   }, [data.tenant]);
 
   useEffect(() => {
@@ -286,6 +300,7 @@ export default function SettingsPage(): JSX.Element {
       systemPromptOverride: systemPromptOverride.trim() || null,
       elevenlabsVoiceId: elevenlabsVoiceId || null,
       toneOfVoice,
+      sttStrategy,
     })
       .then(() => {
         showToast("Settings saved.", "success");
@@ -333,6 +348,7 @@ export default function SettingsPage(): JSX.Element {
 
       {activeTab === "phone" && <PhoneSetupSection tenantId={tenantId} />}
       {activeTab === "integrations" && <IntegrationsSection tenantId={tenantId} plan={data.tenant.plan} />}
+      {activeTab === "usage" && <UsageSection tenantId={tenantId} />}
 
       {activeTab === "general" && (
         <>
@@ -515,6 +531,25 @@ export default function SettingsPage(): JSX.Element {
               })()}
             </div>
           )}
+        </div>
+
+        <div>
+          <span className="block text-xs font-medium text-slate-600 dark:text-slate-300">Speech recognition</span>
+          <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {STT_STRATEGIES.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSttStrategy(option.value)}
+                className={`rounded-lg border p-3 text-left transition ${
+                  sttStrategy === option.value ? "border-violet-500 bg-violet-50 dark:bg-violet-950/40" : "border-slate-300 dark:border-slate-700"
+                }`}
+              >
+                <span className="block text-sm font-medium text-slate-900 dark:text-slate-50">{option.label}</span>
+                <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{option.description}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 

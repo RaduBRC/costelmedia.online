@@ -137,6 +137,7 @@ const fixtureTenant: Tenant = {
   toneOfVoice: "friendly",
   plan: "starter",
   requiredBookingFields: null,
+  sttStrategy: "deepgram_only",
 };
 
 function fixtureService(name: string): Service {

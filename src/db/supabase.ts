@@ -19,10 +19,13 @@ import type {
   Currency,
   Faq,
   FiveScale,
+  KnowledgeGap,
   Sentiment,
   SecurityChannel,
   SecurityLogStatus,
   Service,
+  ServiceFailure,
+  SttStrategy,
   Tenant,
   TenantDailyStat,
   TenantPlan,
@@ -30,7 +33,9 @@ import type {
   ThreatCategory,
   ToneDistribution,
   ToneOfVoice,
+  UsageEvent,
   VipLead,
+  VoiceCallMetric,
   WorkingHours,
 } from "../types/index.js";
 
@@ -72,6 +77,7 @@ type TenantRow = {
   tone_of_voice: ToneOfVoice;
   plan: TenantPlan;
   required_booking_fields: string[] | null;
+  stt_strategy: SttStrategy;
 };
 
 type VipLeadRow = {
@@ -151,6 +157,47 @@ type CallTranscriptRow = {
   call_sid: string;
   transcript: string;
   duration_seconds: number;
+  needs_follow_up: boolean;
+  created_at: string;
+};
+
+type KnowledgeGapRow = {
+  id: string;
+  tenant_id: string;
+  business_type: BusinessType;
+  question: string;
+  channel: BookingChannel;
+  created_at: string;
+};
+
+type VoiceCallMetricRow = {
+  id: string;
+  tenant_id: string;
+  stream_sid: string;
+  stt_strategy: SttStrategy;
+  whisper_used: boolean;
+  whisper_latency_ms: number | null;
+  llm_latency_ms: number | null;
+  tts_first_byte_latency_ms: number | null;
+  total_turn_latency_ms: number | null;
+  elevenlabs_fallback_used: boolean;
+  created_at: string;
+};
+
+type ServiceFailureRow = {
+  id: string;
+  tenant_id: string | null;
+  service: ServiceFailure["service"];
+  error_message: string;
+  created_at: string;
+};
+
+type UsageEventRow = {
+  id: string;
+  tenant_id: string;
+  service: UsageEvent["service"];
+  quantity: number;
+  unit: string;
   created_at: string;
 };
 
@@ -253,6 +300,7 @@ export interface Database {
           | "tone_of_voice"
           | "plan"
           | "required_booking_fields"
+          | "stt_strategy"
         > & {
           id?: string;
           created_at?: string;
@@ -276,6 +324,7 @@ export interface Database {
           tone_of_voice?: ToneOfVoice;
           plan?: TenantPlan;
           required_booking_fields?: string[] | null;
+          stt_strategy?: SttStrategy;
         };
         Update: Partial<Omit<TenantRow, "id">>;
         Relationships: [];
@@ -326,7 +375,7 @@ export interface Database {
       };
       call_transcripts: {
         Row: CallTranscriptRow;
-        Insert: Omit<CallTranscriptRow, "id" | "created_at"> & { id?: string; created_at?: string };
+        Insert: Omit<CallTranscriptRow, "id" | "created_at" | "needs_follow_up"> & { id?: string; created_at?: string; needs_follow_up?: boolean };
         Update: Partial<Omit<CallTranscriptRow, "id" | "tenant_id">>;
         Relationships: [];
       };
@@ -398,6 +447,35 @@ export interface Database {
         Update: Partial<Omit<VipLeadRow, "id" | "tenant_id">>;
         Relationships: [];
       };
+      knowledge_gaps: {
+        Row: KnowledgeGapRow;
+        Insert: Omit<KnowledgeGapRow, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: Partial<Omit<KnowledgeGapRow, "id" | "tenant_id">>;
+        Relationships: [];
+      };
+      voice_call_metrics: {
+        Row: VoiceCallMetricRow;
+        Insert: Omit<VoiceCallMetricRow, "id" | "created_at" | "whisper_used" | "elevenlabs_fallback_used"> & {
+          id?: string;
+          created_at?: string;
+          whisper_used?: boolean;
+          elevenlabs_fallback_used?: boolean;
+        };
+        Update: Partial<Omit<VoiceCallMetricRow, "id" | "tenant_id">>;
+        Relationships: [];
+      };
+      service_failures: {
+        Row: ServiceFailureRow;
+        Insert: Omit<ServiceFailureRow, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: Partial<Omit<ServiceFailureRow, "id">>;
+        Relationships: [];
+      };
+      usage_events: {
+        Row: UsageEventRow;
+        Insert: Omit<UsageEventRow, "id" | "created_at"> & { id?: string; created_at?: string };
+        Update: Partial<Omit<UsageEventRow, "id" | "tenant_id">>;
+        Relationships: [];
+      };
     };
     Views: {
       v_tenant_daily_stats: {
@@ -466,6 +544,7 @@ function toTenant(row: TenantRow): Tenant {
     toneOfVoice: row.tone_of_voice,
     plan: row.plan,
     requiredBookingFields: row.required_booking_fields,
+    sttStrategy: row.stt_strategy,
   };
 }
 
@@ -527,9 +606,48 @@ function toCallTranscriptRecord(row: CallTranscriptRow): CallTranscriptRecord {
     callSid: row.call_sid,
     transcript: row.transcript,
     durationSeconds: row.duration_seconds,
+    needsFollowUp: row.needs_follow_up,
     createdAt: row.created_at,
   };
 }
+
+function toKnowledgeGap(row: KnowledgeGapRow): KnowledgeGap {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    businessType: row.business_type,
+    question: row.question,
+    channel: row.channel,
+    createdAt: row.created_at,
+  };
+}
+
+function toVoiceCallMetric(row: VoiceCallMetricRow): VoiceCallMetric {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    streamSid: row.stream_sid,
+    sttStrategy: row.stt_strategy,
+    whisperUsed: row.whisper_used,
+    whisperLatencyMs: row.whisper_latency_ms,
+    llmLatencyMs: row.llm_latency_ms,
+    ttsFirstByteLatencyMs: row.tts_first_byte_latency_ms,
+    totalTurnLatencyMs: row.total_turn_latency_ms,
+    elevenlabsFallbackUsed: row.elevenlabs_fallback_used,
+    createdAt: row.created_at,
+  };
+}
+
+function toServiceFailure(row: ServiceFailureRow): ServiceFailure {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    service: row.service,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+  };
+}
+
 
 function toTenantDailyStat(row: TenantDailyStatRow): TenantDailyStat {
   return {
@@ -678,6 +796,7 @@ export async function updateTenant(
     address: string | null;
     toneOfVoice: ToneOfVoice;
     requiredBookingFields: string[] | null;
+    sttStrategy: SttStrategy;
   }>,
 ): Promise<Tenant> {
   const update: Database["public"]["Tables"]["tenants"]["Update"] = {
@@ -691,6 +810,7 @@ export async function updateTenant(
     ...(patch.address !== undefined ? { address: patch.address } : {}),
     ...(patch.toneOfVoice !== undefined ? { tone_of_voice: patch.toneOfVoice } : {}),
     ...(patch.requiredBookingFields !== undefined ? { required_booking_fields: patch.requiredBookingFields } : {}),
+    ...(patch.sttStrategy !== undefined ? { stt_strategy: patch.sttStrategy } : {}),
   };
 
   const { data, error } = await getSupabaseClient().from("tenants").update(update).eq("id", tenantId).select("*").single();
@@ -714,6 +834,22 @@ export async function updateTenantPlan(tenantId: string, plan: TenantPlan): Prom
     throw new Error(`Failed to update plan for tenant ${tenantId}: ${error?.message ?? "unknown error"}`);
   }
   return toTenant(data);
+}
+
+/**
+ * Deliberately separate from updateTenant, same reasoning as
+ * updateTenantPlan above — twilio_phone_number is Twilio-routing
+ * infrastructure (inbound webhook resolution, src/telephony/voiceHandler.ts),
+ * not a self-service Settings field, so it stays unreachable from the
+ * generic PATCH /api/tenants/:tenantId a tenant_admin drives. Only called
+ * from the number-provisioning route right after a real Twilio purchase
+ * succeeds (tenantSettings.ts's POST /phone/provision).
+ */
+export async function setTenantTwilioPhoneNumber(tenantId: string, phoneNumber: string): Promise<void> {
+  const { error } = await getSupabaseClient().from("tenants").update({ twilio_phone_number: phoneNumber }).eq("id", tenantId);
+  if (error) {
+    throw new Error(`Failed to save Twilio phone number for tenant ${tenantId}: ${error.message}`);
+  }
 }
 
 /** For idempotent provisioning flows (the seed script, tenant registration) that need to check "does this owner already have a tenant?" before creating a duplicate. */
@@ -1491,6 +1627,7 @@ export async function insertCallTranscript(input: {
   callSid: string;
   transcript: string;
   durationSeconds: number;
+  needsFollowUp?: boolean;
 }): Promise<CallTranscriptRecord> {
   const { data, error } = await getSupabaseClient()
     .from("call_transcripts")
@@ -1501,6 +1638,7 @@ export async function insertCallTranscript(input: {
       call_sid: input.callSid,
       transcript: input.transcript,
       duration_seconds: input.durationSeconds,
+      needs_follow_up: input.needsFollowUp ?? false,
     })
     .select("*")
     .single();
@@ -1509,6 +1647,23 @@ export async function insertCallTranscript(input: {
     throw new Error(`Failed to insert call transcript: ${error?.message ?? "unknown error"}`);
   }
   return toCallTranscriptRecord(data);
+}
+
+export interface ListCallTranscriptsFilters {
+  needsFollowUpOnly?: boolean;
+}
+
+/** Backs the new /admin/calls page (CallLogsPage.tsx) — the only surface in this app that lets a tenant actually see their past call transcripts and which ones flagged for human follow-up (callSession.ts's frustration tracking). */
+export async function listCallTranscripts(tenantId: string, filters: ListCallTranscriptsFilters = {}): Promise<CallTranscriptRecord[]> {
+  let query = getSupabaseClient().from("call_transcripts").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false });
+  if (filters.needsFollowUpOnly) {
+    query = query.eq("needs_follow_up", true);
+  }
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`Failed to list call transcripts for tenant ${tenantId}: ${error.message}`);
+  }
+  return (data ?? []).map(toCallTranscriptRecord);
 }
 
 // ---------------------------------------------------------------------------
@@ -1806,6 +1961,190 @@ export async function listAllVipLeads(): Promise<VipLead[]> {
     throw new Error(`Failed to list VIP leads: ${error.message}`);
   }
   return (data ?? []).map(toVipLead);
+}
+
+// ---------------------------------------------------------------------------
+// knowledge_gaps (023_voice_improvements.sql) — questions neither a
+// tenant's own FAQs nor the niche fallback knowledge base covered. See
+// promptBuilder.ts's KNOWLEDGE_GAP_MARKER for how these get detected.
+// ---------------------------------------------------------------------------
+
+export async function insertKnowledgeGap(input: { tenantId: string; businessType: BusinessType; question: string; channel: BookingChannel }): Promise<void> {
+  const { error } = await getSupabaseClient().from("knowledge_gaps").insert({
+    tenant_id: input.tenantId,
+    business_type: input.businessType,
+    question: input.question,
+    channel: input.channel,
+  });
+  if (error) {
+    throw new Error(`Failed to insert knowledge gap: ${error.message}`);
+  }
+}
+
+/** A tenant's own knowledge gaps, newest first — backs the "suggested FAQs" panel on FaqsPage.tsx. */
+export async function listKnowledgeGapsForTenant(tenantId: string, limit = 100): Promise<KnowledgeGap[]> {
+  const { data, error } = await getSupabaseClient()
+    .from("knowledge_gaps")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    throw new Error(`Failed to list knowledge gaps for tenant ${tenantId}: ${error.message}`);
+  }
+  return (data ?? []).map(toKnowledgeGap);
+}
+
+/** Every knowledge gap on the platform, newest first — backs the super-admin cross-tenant view, grouped client-side by businessType so a curator can spot patterns per vertical. Service-role, bypasses RLS by design, same as listAllTenants. */
+export async function listAllKnowledgeGaps(limit = 500): Promise<KnowledgeGap[]> {
+  const { data, error } = await getSupabaseClient().from("knowledge_gaps").select("*").order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    throw new Error(`Failed to list knowledge gaps: ${error.message}`);
+  }
+  return (data ?? []).map(toKnowledgeGap);
+}
+
+// ---------------------------------------------------------------------------
+// voice_call_metrics (023_voice_improvements.sql) — per-turn latency
+// breakdown, best-effort/fire-and-forget from voiceStreamServer.ts.
+// ---------------------------------------------------------------------------
+
+export async function insertVoiceCallMetric(input: {
+  tenantId: string;
+  streamSid: string;
+  sttStrategy: SttStrategy;
+  whisperUsed?: boolean;
+  whisperLatencyMs?: number | null;
+  llmLatencyMs?: number | null;
+  ttsFirstByteLatencyMs?: number | null;
+  totalTurnLatencyMs?: number | null;
+  elevenlabsFallbackUsed?: boolean;
+}): Promise<void> {
+  const { error } = await getSupabaseClient()
+    .from("voice_call_metrics")
+    .insert({
+      tenant_id: input.tenantId,
+      stream_sid: input.streamSid,
+      stt_strategy: input.sttStrategy,
+      whisper_used: input.whisperUsed ?? false,
+      whisper_latency_ms: input.whisperLatencyMs ?? null,
+      llm_latency_ms: input.llmLatencyMs ?? null,
+      tts_first_byte_latency_ms: input.ttsFirstByteLatencyMs ?? null,
+      total_turn_latency_ms: input.totalTurnLatencyMs ?? null,
+      elevenlabs_fallback_used: input.elevenlabsFallbackUsed ?? false,
+    });
+  if (error) {
+    throw new Error(`Failed to insert voice call metric: ${error.message}`);
+  }
+}
+
+/** Recent per-turn metrics for one tenant — backs the "System Health" super-admin view's per-tenant drill-down. */
+export async function listVoiceCallMetrics(tenantId: string, limit = 200): Promise<VoiceCallMetric[]> {
+  const { data, error } = await getSupabaseClient()
+    .from("voice_call_metrics")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    throw new Error(`Failed to list voice call metrics for tenant ${tenantId}: ${error.message}`);
+  }
+  return (data ?? []).map(toVoiceCallMetric);
+}
+
+/** Platform-wide recent metrics — backs the super-admin System Health summary (avg latencies, Whisper usage rate). Service-role, bypasses RLS by design. */
+export async function listAllVoiceCallMetrics(limit = 1000): Promise<VoiceCallMetric[]> {
+  const { data, error } = await getSupabaseClient().from("voice_call_metrics").select("*").order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    throw new Error(`Failed to list voice call metrics: ${error.message}`);
+  }
+  return (data ?? []).map(toVoiceCallMetric);
+}
+
+// ---------------------------------------------------------------------------
+// service_failures (023_voice_improvements.sql) — a persisted log of
+// TTS/STT/LLM/Twilio failures that previously only ever hit a server
+// console. tenantId is nullable: a Whisper/ElevenLabs failure not yet
+// attributable to a specific tenant (e.g. a boot-time config problem)
+// still gets logged.
+// ---------------------------------------------------------------------------
+
+export async function insertServiceFailure(input: { tenantId?: string | null; service: ServiceFailure["service"]; errorMessage: string }): Promise<void> {
+  const { error } = await getSupabaseClient().from("service_failures").insert({
+    tenant_id: input.tenantId ?? null,
+    service: input.service,
+    error_message: input.errorMessage,
+  });
+  if (error) {
+    // Deliberately just logged, not re-thrown — a failure to record a
+    // failure must never crash whatever real operation was already
+    // failing when this got called.
+    console.error(`Failed to insert service failure log: ${error.message}`);
+  }
+}
+
+/** Platform-wide recent failures, newest first — backs the super-admin System Health page. Service-role, bypasses RLS by design. */
+export async function listAllServiceFailures(limit = 500): Promise<ServiceFailure[]> {
+  const { data, error } = await getSupabaseClient().from("service_failures").select("*").order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    throw new Error(`Failed to list service failures: ${error.message}`);
+  }
+  return (data ?? []).map(toServiceFailure);
+}
+
+// ---------------------------------------------------------------------------
+// usage_events (023_voice_improvements.sql) — Groq tokens, ElevenLabs
+// characters, Whisper audio seconds, Twilio messages, so a tenant's real
+// usage/cost is visible instead of invisible until a provider bill
+// arrives. One row per event; summed on read, not pre-aggregated — the
+// volume here (one row per LLM/TTS call) is nowhere near what would need
+// a rollup table for a single-tenant dashboard query to stay fast.
+// ---------------------------------------------------------------------------
+
+export async function insertUsageEvent(input: { tenantId: string; service: UsageEvent["service"]; quantity: number; unit: string }): Promise<void> {
+  const { error } = await getSupabaseClient().from("usage_events").insert({
+    tenant_id: input.tenantId,
+    service: input.service,
+    quantity: input.quantity,
+    unit: input.unit,
+  });
+  if (error) {
+    // Same reasoning as insertServiceFailure — never let a usage-logging
+    // hiccup take down the real request that triggered it.
+    console.error(`Failed to insert usage event: ${error.message}`);
+  }
+}
+
+export interface UsageSummaryRow {
+  service: UsageEvent["service"];
+  totalQuantity: number;
+  unit: string;
+  eventCount: number;
+}
+
+/** Sums quantity per service over the last `days` days — the actual numbers a tenant's Usage tab and the super-admin cost dashboard render. */
+export async function getUsageSummary(tenantId: string | null, days = 30): Promise<UsageSummaryRow[]> {
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  let query = getSupabaseClient().from("usage_events").select("service, quantity, unit").gte("created_at", sinceIso);
+  if (tenantId) {
+    query = query.eq("tenant_id", tenantId);
+  }
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`Failed to summarize usage${tenantId ? ` for tenant ${tenantId}` : ""}: ${error.message}`);
+  }
+
+  const bucketsByService = new Map<string, UsageSummaryRow>();
+  for (const row of data ?? []) {
+    const existing = bucketsByService.get(row.service);
+    if (existing) {
+      existing.totalQuantity += row.quantity;
+      existing.eventCount += 1;
+    } else {
+      bucketsByService.set(row.service, { service: row.service, totalQuantity: row.quantity, unit: row.unit, eventCount: 1 });
+    }
+  }
+  return Array.from(bucketsByService.values());
 }
 
 // ---------------------------------------------------------------------------
