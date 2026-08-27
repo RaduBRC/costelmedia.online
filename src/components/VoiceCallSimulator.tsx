@@ -74,6 +74,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bot, Keyboard, Mic, MicOff, Phone, PhoneOff, Send, User, Volume2 } from "lucide-react";
 import { getVoiceGreeting } from "../agent/promptBuilder.js";
+import { useAuth } from "../context/AuthContext.js";
 import { sendChatMessage, synthesizeSpeech, TtsError } from "../lib/api.js";
 import type { Tenant } from "../types/index.js";
 import { useToast } from "./Toast.js";
@@ -168,6 +169,11 @@ function SpeakingWaveform({ active }: { active: boolean }): JSX.Element {
 
 export default function VoiceCallSimulator({ tenantId, tenant }: { tenantId: string; tenant: Tenant | null }): JSX.Element {
   const { showToast } = useToast();
+  // Debug panel is internal-only — regular tenant accounts booking real
+  // clients through this simulator shouldn't see raw pipeline/console
+  // output, only Radu's own super-admin account (see AuthContext's
+  // isSuperAdmin, sourced from the is_super_admin JWT claim).
+  const { isSuperAdmin } = useAuth();
   const [clientPhone, setClientPhone] = useState("+40712345678");
   const [callActive, setCallActive] = useState(false);
   const [status, setStatus] = useState<CallStatus>("idle");
@@ -782,7 +788,7 @@ export default function VoiceCallSimulator({ tenantId, tenant }: { tenantId: str
     </form>
   );
 
-  const debugPanel = (
+  const debugPanel = isSuperAdmin ? (
     <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-950 dark:border-slate-800">
       <div className="flex items-center justify-between border-b border-slate-800 px-3 py-1.5">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Debug — Status: [{status.toUpperCase()}]</span>
@@ -792,7 +798,7 @@ export default function VoiceCallSimulator({ tenantId, tenant }: { tenantId: str
         <div ref={debugAnchorRef} />
       </pre>
     </div>
-  );
+  ) : null;
 
   return (
     <div>
